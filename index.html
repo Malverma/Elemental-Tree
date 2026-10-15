@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elemental Tree</title>
+  <link rel="icon" href="assets/icon_nature.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="assets/icon_nature.svg" alt="" width="26" height="26">
+      <span>Elemental Tree</span>
+    </div>
+    <div class="resources" id="resources"></div>
+    <div class="dev" id="dev"></div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="grove" class="active">Grove</button>
+    <button data-tab="barracks">Barracks</button>
+    <button data-tab="map">World Map</button>
+  </nav>
+
+  <main id="view"></main>
+
+  <div class="battle-overlay" id="battle" hidden></div>
+  <div class="toasts" id="toasts"></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

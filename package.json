@@ -1,0 +1,11 @@
+{
+  "name": "elemental-tree",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "assets": "node tools/gen-assets.mjs",
+    "sim": "node tools/sim-check.mjs"
+  }
+}
