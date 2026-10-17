@@ -1,7 +1,7 @@
 class_name MapCanvas
 extends Control
 ## Draws the world map: biomes, root paths, the home grove and level nodes.
-## Tapping a level node emits `level_selected`.
+## Tapping a level node emits `level_selected` (with "grove" for the Home Grove).
 
 signal level_selected(id: String)
 
@@ -29,6 +29,10 @@ func _origin() -> Vector2:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var p: Vector2 = (event.position - _origin()) / _scale()
+		if p.distance_to(GameData.GROVE) <= 40 + 10:
+			level_selected.emit("grove")
+			accept_event()
+			return
 		for id in GameData.LEVEL_ORDER:
 			if p.distance_to(GameData.LEVELS[id]["pos"]) <= NODE_R + 10:
 				level_selected.emit(id)
@@ -85,7 +89,10 @@ func _draw() -> void:
 	var g := GameData.GROVE
 	draw_rect(Rect2(g + Vector2(-5, 0), Vector2(10, 28)), UI.BARK)
 	draw_circle(g, 40, UI.LEAF)
-	draw_arc(g, 40, 0, TAU, 48, UI.LEAF_DARK, 3, true)
+	if selected == "grove":
+		draw_arc(g, 40, 0, TAU, 48, UI.ROOT_GLOW, 6, true)
+	else:
+		draw_arc(g, 40, 0, TAU, 48, UI.LEAF_DARK, 3, true)
 	_text(g + Vector2(0, 66), "Home Grove", 20, UI.INK, true)
 
 	# Level nodes.

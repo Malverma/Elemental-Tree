@@ -65,8 +65,18 @@ static func leftover_ehp(squad_ehp: float, squad_dps: float, pack_hp: float, pac
 
 # --- Economy -----------------------------------------------------------------
 
+# Sunlight (growth) to reach the next tree level, sized in minutes of collecting:
+# 15 min for 1 → 2, rising ×1.77 a level to 24 h for 9 → 10, then 24 h a level.
+# Timed at the sunlight rate with branches one level behind the tree.
+const GROWTH_FIRST_MINUTES := 15.0
+const GROWTH_DAY_LEVEL := 9
+
+static func growth_minutes(level: int) -> float:
+	var ratio := pow(STORAGE_CAP_MINUTES / GROWTH_FIRST_MINUTES, 1.0 / (GROWTH_DAY_LEVEL - 1))
+	return GROWTH_FIRST_MINUTES * pow(ratio, mini(level, GROWTH_DAY_LEVEL) - 1)
+
 static func xp_to_next(level: int) -> int:
-	return roundi(50.0 * pow(level, 1.5))
+	return roundi(growth_minutes(level) * sunlight_per_min(level - 1) / 10.0) * 10
 
 static func sunlight_per_min(branches: int) -> float:
 	return 10.0 + 5.0 * branches
@@ -88,30 +98,38 @@ static func roster_cap(tree_level: int) -> int:
 
 const PARTS := {
 	"roots": {
-		"name": "Roots", "start": 0,
+		"name": "Roots", "start": 0, "sunlight_share": 0.3,
 		"blurb": "Spread across the world map. Each level reaches one step farther.",
 	},
 	"trunk": {
-		"name": "Trunk", "start": 1,
+		"name": "Trunk", "start": 1, "sunlight_share": 0.2,
 		"blurb": "Produces sap for growing troops. Also widens the battle formation.",
 	},
 	"branches": {
-		"name": "Branches", "start": 0,
+		"name": "Branches", "start": 0, "sunlight_share": 0.2,
 		"blurb": "Catch more of the sun. Raises sunlight gathered per minute.",
 	},
 }
 const PART_ORDER := ["roots", "trunk", "branches"]
 
 
-# Cost to raise `part` from `lvl` to `lvl + 1`.
+# Part upgrades up to this level cost sunlight only, so early sap goes to troops.
+const SAP_FREE_PART_LEVELS := 3
+
+# Cost to raise `part` from `lvl` to `lvl + 1`. Sunlight follows the tree's
+# growth curve: a share (`sunlight_share`) of what the tree needed to reach the
+# level that unlocks this upgrade, rounded to 5.
 static func part_cost(part: String, lvl: int) -> Dictionary:
+	var sun: float = PARTS[part]["sunlight_share"] * xp_to_next(maxi(lvl, 1))
+	var cost := {"sunlight": roundi(sun / 5.0) * 5}
 	match part:
 		"roots":
-			return {"sunlight": roundi(50 * pow(1.8, lvl)), "sap": roundi(30 * pow(1.8, lvl))}
+			cost["sap"] = roundi(30 * pow(1.8, lvl))
 		"trunk":
-			return {"sunlight": roundi(30 * pow(1.6, lvl - 1)), "sap": roundi(20 * pow(1.6, lvl - 1))}
-		_:
-			return {"sunlight": roundi(40 * pow(1.5, lvl))}
+			cost["sap"] = roundi(20 * pow(1.6, lvl - 1))
+	if lvl + 1 <= SAP_FREE_PART_LEVELS:
+		cost.erase("sap")
+	return cost
 
 
 static func part_effect(part: String, lvl: int) -> String:
@@ -133,7 +151,15 @@ static func part_effect(part: String, lvl: int) -> String:
 #   freeze    chance per hit to freeze the target (no moving or attacking) for FREEZE_TIME
 #   armor     takes this fraction less damage
 #   lifesteal heals this fraction of the damage it deals
+#   dive      (foes) rushes the farthest-back row instead of the nearest troop
+#   cleave    (foes) each hit also deals this fraction to troops within CLEAVE_RADIUS of the target
+# Formation rules: troops hold their spot, chasing foes at most HOLD_RADIUS away
+# from it, so rows and lanes matter. Melee troops (reach 1–2) taunt: a non-boss
+# foe they hit turns on them for TAUNT_TIME, so a front line screens the rows behind.
 
+const HOLD_RADIUS := 140.0
+const TAUNT_TIME := 2.5
+const CLEAVE_RADIUS := 70.0
 const SLOW_TIME := 2.0
 const BURN_TIME := 3.0
 const FREEZE_TIME := 1.0
@@ -142,17 +168,17 @@ const BASE_TROOPS := ["soldier", "spearman", "archer"]
 const TROOP_ORDER := ["soldier", "spearman", "archer", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
 const TROOPS := {
 	"soldier": {
-		"name": "Twig Soldier", "img": "troop_soldier", "element": "", "unlock_level": 1, "sap_cost": 10,
+		"name": "Twig Soldier", "img": "troop_soldier", "element": "", "unlock_level": 1, "sap_cost": 30,
 		"role": "Melee frontline", "preferred_row": "front",
 		"hp": 40, "dmg": 5, "reach": 1, "cooldown": 1.0, "speed": 40,
 	},
 	"spearman": {
-		"name": "Twig Spearman", "img": "troop_spearman", "element": "", "unlock_level": 2, "sap_cost": 15,
+		"name": "Twig Spearman", "img": "troop_spearman", "element": "", "unlock_level": 2, "sap_cost": 45,
 		"role": "Bonus vs. large foes", "preferred_row": "middle",
 		"hp": 38, "dmg": 6, "reach": 2, "cooldown": 1.2, "speed": 38, "vs_large": 1.5,
 	},
 	"archer": {
-		"name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 3, "sap_cost": 20,
+		"name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 3, "sap_cost": 60,
 		"role": "Ranged, fragile", "preferred_row": "back",
 		"hp": 18, "dmg": 6, "reach": 8, "cooldown": 1.4, "speed": 34,
 		"projectile": Color("#E8E2D0"), "target_lowest_hp": true,
@@ -161,27 +187,27 @@ const TROOPS := {
 	# and cost some of that element's power to grow.
 	"vine_lasher": {
 		"name": "Vine Lasher", "img": "troop_vine_lasher", "element": "nature", "unlock_level": 1,
-		"sap_cost": 20, "power_cost": 6, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
+		"sap_cost": 60, "power_cost": 6, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
 		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.025,
 	},
 	"tide_caller": {
 		"name": "Tide Caller", "img": "troop_tide_caller", "element": "water", "unlock_level": 1,
-		"sap_cost": 20, "power_cost": 6, "role": "Ranged, hits slow enemies", "preferred_row": "back",
+		"sap_cost": 60, "power_cost": 6, "role": "Ranged, hits slow enemies", "preferred_row": "back",
 		"hp": 20, "dmg": 4, "reach": 6, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "slow": true,
 	},
 	"ember_sprout": {
 		"name": "Ember Sprout", "img": "troop_ember_sprout", "element": "fire", "unlock_level": 1,
-		"sap_cost": 20, "power_cost": 6, "role": "Hard hitter, sets foes burning", "preferred_row": "front",
+		"sap_cost": 60, "power_cost": 6, "role": "Hard hitter, sets foes burning", "preferred_row": "front",
 		"hp": 28, "dmg": 8, "reach": 1, "cooldown": 1.0, "speed": 45, "burn": 0.3,
 	},
 	"frost_warden": {
 		"name": "Frost Warden", "img": "troop_frost_warden", "element": "ice", "unlock_level": 1,
-		"sap_cost": 20, "power_cost": 6, "role": "Armored tank, hits can freeze", "preferred_row": "front",
+		"sap_cost": 60, "power_cost": 6, "role": "Armored tank, hits can freeze", "preferred_row": "front",
 		"hp": 64, "dmg": 4, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.15, "freeze": 0.12,
 	},
 	"shade_twig": {
 		"name": "Shade Twig", "img": "troop_shade_twig", "element": "dark", "unlock_level": 1,
-		"sap_cost": 20, "power_cost": 6, "role": "Fast, heals from damage dealt", "preferred_row": "front",
+		"sap_cost": 60, "power_cost": 6, "role": "Fast, heals from damage dealt", "preferred_row": "front",
 		"hp": 34, "dmg": 6, "reach": 1, "cooldown": 1.0, "speed": 50, "lifesteal": 0.35,
 	},
 }
@@ -230,33 +256,33 @@ const ENEMIES := {
 	"thorn_beetle": {"name": "Thorn Beetle", "img": "enemy_thorn_beetle", "element": "nature",
 		"hp": 20, "dmg": 3, "reach": 1, "cooldown": 1.2, "speed": 30},
 	"burrow_rabbit": {"name": "Burrow Rabbit", "img": "enemy_burrow_rabbit", "element": "nature",
-		"hp": 11, "dmg": 3, "reach": 1, "cooldown": 1.1, "speed": 60},
+		"hp": 11, "dmg": 3, "reach": 1, "cooldown": 1.1, "speed": 60, "dive": true},
 	"bramble_hare": {"name": "Bramble Hare", "img": "enemy_bramble_hare", "element": "nature",
-		"hp": 110, "dmg": 6, "reach": 1, "cooldown": 1.4, "speed": 34, "large": true, "boss": true},
+		"hp": 110, "dmg": 6, "reach": 1, "cooldown": 1.4, "speed": 34, "large": true, "boss": true, "cleave": 0.4},
 	"spring_frog": {"name": "Spring Frog", "img": "enemy_spring_frog", "element": "water",
 		"hp": 22, "dmg": 4, "reach": 1, "cooldown": 1.25, "speed": 45},
 	"ripple_sprite": {"name": "Ripple Sprite", "img": "enemy_ripple_sprite", "element": "water",
 		"hp": 13, "dmg": 3, "reach": 5, "cooldown": 1.6, "speed": 32, "projectile": Color("#7FC8F0")},
 	"mossback_turtle": {"name": "Old Mossback Turtle", "img": "enemy_mossback_turtle", "element": "water",
-		"hp": 150, "dmg": 7, "reach": 1, "cooldown": 1.95, "speed": 22, "large": true, "boss": true},
+		"hp": 150, "dmg": 7, "reach": 1, "cooldown": 1.95, "speed": 22, "large": true, "boss": true, "cleave": 0.5},
 	"cinder_lizard": {"name": "Cinder Lizard", "img": "enemy_cinder_lizard", "element": "fire",
 		"hp": 26, "dmg": 4, "reach": 1, "cooldown": 1.2, "speed": 40},
 	"ash_moth": {"name": "Ash Moth", "img": "enemy_ash_moth", "element": "fire",
 		"hp": 13, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 48, "projectile": Color("#FF8A3D")},
 	"magma_salamander": {"name": "Magma Salamander", "img": "enemy_magma_salamander", "element": "fire",
-		"hp": 200, "dmg": 8, "reach": 1, "cooldown": 1.7, "speed": 26, "large": true, "boss": true, "burn": 0.3},
+		"hp": 200, "dmg": 8, "reach": 1, "cooldown": 1.7, "speed": 26, "large": true, "boss": true, "burn": 0.3, "cleave": 0.5},
 	"frost_wolf": {"name": "Frost Wolf", "img": "enemy_frost_wolf", "element": "ice",
-		"hp": 26, "dmg": 4, "reach": 1, "cooldown": 1.0, "speed": 58},
+		"hp": 26, "dmg": 4, "reach": 1, "cooldown": 1.0, "speed": 58, "dive": true},
 	"icicle_bat": {"name": "Icicle Bat", "img": "enemy_icicle_bat", "element": "ice",
 		"hp": 16, "dmg": 3, "reach": 4, "cooldown": 1.5, "speed": 50, "projectile": Color("#BDEBFF")},
 	"rime_elk": {"name": "Rime Elk", "img": "enemy_rime_elk", "element": "ice",
-		"hp": 230, "dmg": 9, "reach": 1, "cooldown": 1.8, "speed": 28, "large": true, "boss": true, "freeze": 0.12},
+		"hp": 230, "dmg": 9, "reach": 1, "cooldown": 1.8, "speed": 28, "large": true, "boss": true, "freeze": 0.12, "cleave": 0.5},
 	"cave_bat": {"name": "Cave Bat", "img": "enemy_cave_bat", "element": "dark",
-		"hp": 17, "dmg": 4, "reach": 1, "cooldown": 0.9, "speed": 66},
+		"hp": 17, "dmg": 4, "reach": 1, "cooldown": 0.9, "speed": 66, "dive": true},
 	"shadow_slime": {"name": "Shadow Slime", "img": "enemy_shadow_slime", "element": "dark",
 		"hp": 48, "dmg": 5, "reach": 1, "cooldown": 1.4, "speed": 24},
 	"hollow_mole_king": {"name": "Hollow Mole King", "img": "enemy_hollow_mole_king", "element": "dark",
-		"hp": 290, "dmg": 10, "reach": 1, "cooldown": 1.7, "speed": 24, "large": true, "boss": true, "lifesteal": 0.3},
+		"hp": 290, "dmg": 10, "reach": 1, "cooldown": 1.7, "speed": 24, "large": true, "boss": true, "lifesteal": 0.3, "cleave": 0.5},
 }
 
 
@@ -339,15 +365,18 @@ static func power_reward(level_id: String, first_clear: bool) -> int:
 
 
 # --- Expeditions ----------------------------------------------------------------
-# Endless waves of a land's foes, fought for growth and loot rather than conquest.
-# Every 5th wave is a boss wave and a checkpoint where the squad may head home
-# with its loot. If the squad falls (or retreats) the loot is lost.
+# Started from the Home Grove: endless waves fought for growth and loot rather
+# than conquest. Waves come in stretches of 5 that share one element, cycling
+# nature → water → fire → ice → dark → nature… Each stretch ends with that
+# element's boss and a checkpoint where the squad may head home with its loot.
+# If the squad falls (or retreats) the loot is lost.
 
 const EXPEDITION_CHECKPOINT := 5
 const EXPEDITION_SCALE := 0.05  # enemy HP and damage grow by this fraction per wave
 const EXPEDITION_CAMP_HEAL := 0.5  # pressing on from a checkpoint heals survivors this much (on top of the wave heal)
 const EXPEDITION_WAVE_TIME := 90.0  # seconds per wave before the squad gives up
 const EXPEDITION_ITEM_CHANCE := 0.2  # per normal wave; boss waves always drop an item
+const EXPEDITION_KILL_POWER := 1  # elemental power looted per enemy defeated, of that enemy's element
 
 # Potions found on expeditions. Each one boosts the squad for POTION_WAVES waves:
 # drunk in the Grove it is ready for the start of the next battle, drunk in battle
@@ -377,16 +406,31 @@ static func expedition_scale(index: int) -> float:
 	return 1.0 + EXPEDITION_SCALE * index
 
 
-## Enemy keys for expedition wave `index` (0-based), drawn from the land's foes.
-static func expedition_wave(level_id: String, index: int) -> Array:
+## The element shared by expedition wave `index` (0-based) and the rest of its stretch.
+static func expedition_element(index: int) -> String:
+	return ELEMENTS[(index / EXPEDITION_CHECKPOINT) % ELEMENTS.size()]
+
+
+## The land whose foes and rewards belong to `element`.
+static func land_of(element: String) -> String:
+	for id in LEVEL_ORDER:
+		if LEVELS[id]["element"] == element:
+			return id
+	return ""
+
+
+## Enemy keys for expedition wave `index` (0-based), drawn from its element's foes.
+static func expedition_wave(index: int) -> Array:
+	var element := expedition_element(index)
 	var foes := []
 	var boss := ""
-	for w in LEVELS[level_id]["waves"]:
-		for key in w:
-			if ENEMIES[key].get("boss", false):
-				boss = key
-			elif key not in foes:
-				foes.append(key)
+	for key in ENEMIES:
+		if ENEMIES[key]["element"] != element:
+			continue
+		if ENEMIES[key].get("boss", false):
+			boss = key
+		else:
+			foes.append(key)
 	var out := []
 	if is_expedition_checkpoint(index):
 		out.append(boss)
@@ -398,9 +442,11 @@ static func expedition_wave(level_id: String, index: int) -> Array:
 	return out
 
 
-## Growth earned for clearing expedition wave `index`; boss waves give double.
-static func expedition_wave_xp(level_id: String, index: int) -> int:
-	var xp: float = LEVELS[level_id]["rewards"]["xp"] / 4.0 * (1.0 + 0.1 * index)
+## Growth earned for clearing expedition wave `index`, based on the replay
+## growth of its element's land; boss waves give double.
+static func expedition_wave_xp(index: int) -> int:
+	var land := land_of(expedition_element(index))
+	var xp: float = LEVELS[land]["rewards"]["xp"] / 4.0 * (1.0 + 0.1 * index)
 	return roundi(xp * (2.0 if is_expedition_checkpoint(index) else 1.0))
 
 
@@ -421,7 +467,7 @@ const GARDEN_PLOTS := 12
 const GROW_MINUTES := 5.0
 const GARDEN_CAP_MINUTES := 4.0 * 60.0
 const EXPEDITION_SEED_CHANCE := 0.3  # per normal wave; boss waves always drop a seed
-const SEED_LAND_CHANCE := 0.6  # a dropped seed is the land's element, otherwise a sapling seed
+const SEED_ELEMENT_CHANCE := 0.6  # a dropped seed is the wave's element, otherwise a sapling seed
 
 const SEED_ORDER := ["sapling", "nature", "water", "fire", "ice", "dark"]
 # `makes` is resource -> amount per minute once grown. Resources are "sunlight",
@@ -451,6 +497,6 @@ static func seed_yield_text(seed_id: String) -> String:
 	return ", ".join(parts)
 
 
-## Which seed an expedition in `level_id` drops.
-static func roll_seed(level_id: String) -> String:
-	return LEVELS[level_id]["element"] if randf() < SEED_LAND_CHANCE else "sapling"
+## Which seed an expedition wave of `element` drops.
+static func roll_seed(element: String) -> String:
+	return element if randf() < SEED_ELEMENT_CHANCE else "sapling"

@@ -77,7 +77,7 @@ func _seed_pouch(sel: int) -> Control:
 	var box := UI.vbox(8)
 	box.add_child(UI.label("Seed pouch", "Heading"))
 	if Game.state["seeds"].is_empty():
-		box.add_child(UI.label("Your pouch is empty. Expeditions on the World Map turn up seeds: acorns and seeds of the land's element.", "Small", true))
+		box.add_child(UI.label("Your pouch is empty. Expeditions from the Home Grove (World Map) turn up seeds: acorns and seeds of the foes' element.", "Small", true))
 		return box
 	var target := _plant_target(sel)
 	if target < 0:

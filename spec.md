@@ -147,7 +147,7 @@ Yield scales with level distance/difficulty. Future option: enemies can **reclai
 
 - **Win:** defeat all waves including the boss.
 - **Lose:** all troops defeated. Partial XP is awarded for waves cleared.
-- **Controls during battle:** 1×/2× speed, pause, and skip (skip unlocks after the level has been cleared once).
+- **Controls during battle:** 1×/2×/5× speed, pause, and skip (skip unlocks after the level has been cleared once).
 
 ### 6.2 Base troops
 
@@ -235,11 +235,11 @@ Production and root growth are calculated from timestamps on load (no background
 | Daily sunlight | 100 Growth/day at Sapling, scaling with Tree Level |
 | Daily sap | 50 × Trunk Level |
 | Storage caps | 24h of production |
-| Growth to next level | 100 × level^1.5 |
+| Growth to next level | 15 min of sunlight at level 1, ×1.77 per level, 24 h from level 9 |
 | Root extension cost | 40 × distance² Sap |
 | Root grow time | 1h × distance² |
-| Branch upgrade cost | 50 × branch level^1.4 of that element |
-| Twig Soldier / Spearman / Archer | 10 / 15 / 20 Sap |
+| Part upgrade sunlight | Roots 30% / Trunk 20% / Branches 20% of the tree's channel cost for that level |
+| Twig Soldier / Spearman / Archer | 30 / 45 / 60 Sap |
 | Elemental troop surcharge | +50% Sap + 5 element power |
 | Formation slots | 3 + Trunk Level (max 15) |
 | Matchup bonus / penalty | +50% / −25% |
@@ -262,23 +262,26 @@ The original HTML/JS prototype (repo root, `npm start`) is kept as a reference b
 **Included**
 - Sapling at Tree Level 1 gathering **10 sunlight/min**; the trunk makes **4 sap/min** per trunk level. Production builds up at the tree (24h cap) and is collected by hand.
 - **Tap the branches** for +1 sunlight per tap, to speed up the slow start.
-- Growth: channel sunlight into the tree (1 sunlight = 1 growth) or win battles. Growth needed = 50 × level^1.5.
+- Growth: channel sunlight into the tree (1 sunlight = 1 growth) or win battles. Growth needed is sized in minutes of collecting sunlight (branches one level behind the tree): 15 min for level 1 → 2, ×1.77 per level up to 24 h for 9 → 10, then 24 h per level (150 / 400 / 940 / 2,080 / 4,410 / 9,100 / 18,400 / 36,630 / 72,000 sunlight for levels 1–9). The Grove shows it as "x / y sunlight" with a single "Channel to next level" button (it channels what you have if it isn't enough).
 - Upgrades (each part capped at Tree Level):
   - **Roots** (sunlight + sap): +1 map reach per level. Starts at 0.
   - **Trunk** (sunlight + sap): +4 sap/min and +1 formation slot per level (3 slots at level 1, max 9).
+  - Part sunlight costs follow the tree's growth curve: raising a part to level n costs a share of the sunlight the tree needed to reach level n (Roots 30%, Trunk and Branches 20% each; level 0 → 1 uses the level 1 → 2 amount), so a full set of part upgrades is always ~70% of a level's channel cost.
+  - Upgrades up to part level 3 cost sunlight only; sap is added from level 4.
   - **Branches** (sunlight): +5 sunlight/min per level.
 - Unit stats are HP, DMG and Reach (1 = melee; each point is 30 px on the battlefield).
-- Base troops: Twig Soldier (tree level 1), Twig Spearman (level 2), Twig Archer (level 3), grown with sap. Roster cap = 3 + 2 × Tree Level. Fallen troops are lost for good.
+- Base troops: Twig Soldier (tree level 1), Twig Spearman (level 2), Twig Archer (level 3), grown with 30 / 45 / 60 sap. Roster cap = 3 + 2 × Tree Level. Fallen troops are lost for good.
 - Formation: 3 × 3 grid, front-facing (Front row on top, then Middle, then Back; columns are lanes). Drag a placed troop to move it; dropping on another troop swaps them.
-- Auto-battler: 3 waves + a boss wave, survivors keep their damage between waves (no healing; expeditions still heal 25%), 1×/2× speed, pause, retreat, and skip once a level is conquered.
+- Auto-battler: 3 waves + a boss wave, survivors keep their damage between waves (no healing; expeditions still heal 25%), 1×/2×/5× speed, pause, retreat, and skip once a level is conquered.
 - World map with all five levels playable: Sunny Meadow (reach 1), Whispering Spring (2), Ember Vent and Frostbite Hollow (3), Gloomroot Cavern (4). Each has 3 waves + a boss; the three newer bosses have abilities (Magma Salamander burns, Rime Elk freezes, Hollow Mole King lifesteals).
 - **Element rewards:** first clear of a level grants a full day of its element (its daily yield); every repeat win grants 3 hours' worth.
-- **Elemental troops** (hidden in the Barracks until the roots reach a land of that element, unlocked by conquering it; cost 20 sap + 6 of the element): Vine Lasher (nature, reach 2, regenerates), Tide Caller (water, ranged, slows), Ember Sprout (fire, high damage, burns), Frost Warden (ice, armored tank, can freeze), Shade Twig (dark, fast, lifesteal).
+- **Elemental troops** (hidden in the Barracks until the roots reach a land of that element, unlocked by conquering it; cost 60 sap + 6 of the element): Vine Lasher (nature, reach 2, regenerates), Tide Caller (water, ranged, slows), Ember Sprout (fire, high damage, burns), Frost Warden (ice, armored tank, can freeze), Shade Twig (dark, fast, lifesteal).
 - **Troop upgrades (infusion):** in the Barracks, select a base troop and spend 5 of an element to give it that element permanently: its matchups, an ability and stat changes (nature +15% HP/+10% DMG & regen; water +10% HP/DMG & slow; fire +30% DMG/−10% HP & burn; ice +25% HP, 10% armor & freeze chance; dark +10% HP/DMG & 30% lifesteal).
 - Element matchups are live for troops and enemies (Water → Fire → Ice → Nature → Dark → Water; ×1.5 strong, ×0.75 weak). Levels show a tip naming their counter element.
+- A level's enemy list stays blank ("?" / "???") for each foe until it has appeared in one of the player's battles.
 - Conquered levels store their element's power (up to one day's yield), collected from the map.
-- **Expeditions:** every rooted land has a "Start expedition" button. It sends the formation into endless waves of that land's foes, which get 5% stronger (HP and DMG) and slowly more numerous each wave; every 5th wave is a boss wave and a **checkpoint**. Pressing on from a checkpoint rests the squad (+50% HP on top of the usual 25% wave heal). Each cleared wave adds growth (XP) to the expedition's loot (boss waves double), and has a 20% chance to drop a potion and a 30% chance to drop a seed (boss waves always drop one of each). At a checkpoint the player can **return with the loot** or **press on** to the next one. If the squad falls, runs out of time (90 s per wave) or retreats, all the expedition's loot is lost. Fallen troops are lost for good either way. Expeditions never conquer a land or count as clears.
-- **Garden (tab):** 12 plots for seeds found on expeditions. Each cleared expedition wave has a 30% chance to drop a seed (boss checkpoints always drop one): 60% a seed of the land's element, otherwise an Acorn. Seeds are kept only if the squad returns, like the rest of the loot. A planted seed grows for **5 minutes**, then its plant gathers resources (stored up to 4 hours' worth) that are collected by **tapping the plant**. Acorn → Garden Sapling (2 sunlight + 1 sap per min); Daisy/Lily/Poppy/Bell/Nightshade Seed → Verdant Daisy (nature), Dewdrop Lily (water), Ember Poppy (fire), Frost Bell (ice), Nightshade (dark), each making 1 of its element per 20 min. Plants stay until uprooted (which loses anything uncollected). The seed pouch lists only seeds the player has (or says it is empty).
+- **Expeditions:** tapping the **Home Grove** on the World Map shows a "Start expedition" button where lands show "Attack" (lands no longer offer expeditions). It sends the formation into endless waves that get 5% stronger (HP and DMG) and slowly more numerous each wave. Waves come in **stretches of 5 that share one element**, cycling nature → water → fire → ice → dark → nature…, drawing on that element's land's foes; the 5th wave of each stretch is that element's boss and a **checkpoint**. Pressing on from a checkpoint rests the squad (+50% HP on top of the usual 25% wave heal). Each cleared wave adds growth (XP) to the loot (scaled from the replay growth of that element's land; boss waves double), and has a 20% chance to drop a potion and a 30% chance to drop a seed (boss waves always drop one of each). Every foe defeated adds **1 elemental power** of its element to the loot. At a checkpoint the player sees the next stretch's element and can **return with the loot** or **press on** to the next one. If the squad falls, runs out of time (90 s per wave) or retreats, all the expedition's loot is lost. Fallen troops are lost for good either way. Expeditions never conquer a land or count as clears; Skip is available while the current stretch's element land is conquered.
+- **Garden (tab):** 12 plots for seeds found on expeditions. Each cleared expedition wave has a 30% chance to drop a seed (boss checkpoints always drop one): 60% a seed of the current stretch's element, otherwise an Acorn. Seeds are kept only if the squad returns, like the rest of the loot. A planted seed grows for **5 minutes**, then its plant gathers resources (stored up to 4 hours' worth) that are collected by **tapping the plant**. Acorn → Garden Sapling (2 sunlight + 1 sap per min); Daisy/Lily/Poppy/Bell/Nightshade Seed → Verdant Daisy (nature), Dewdrop Lily (water), Ember Poppy (fire), Frost Bell (ice), Nightshade (dark), each making 1 of its element per 20 min. Plants stay until uprooted (which loses anything uncollected). The seed pouch lists only seeds the player has (or says it is empty).
 - **Inventory & potions:** the Grove has an **Inventory** button listing the potions found on expeditions; a **Potions** button opens it in battle and at expedition checkpoints (the battle pauses while it is open). **Thorn Draught** gives troops +15% damage, **Bark Brew** +20% max HP, and **Growth Tonic** +50% growth from battles. Each lasts 5 waves (a whole level, or about one expedition checkpoint stretch) and the same potion can't stack. Drunk in the Grove, a potion is readied for the next battle or expedition (and can be put back until then); drunk in battle it works at once. Tuned so one potion tips a close fight but both combat potions together are worth about one extra troop, and an expedition turns up fewer potions than it takes to keep a buff running (see `sim_check.gd`).
 
 **Simplified for now**

@@ -17,12 +17,15 @@ var _buffs: HBoxContainer
 var _buffs_key := ""
 var _inventory: Control
 var _seen_count := 0
+var _element_icon: TextureRect
+var _title: Label
+var _skip: Button
 
 
-func _init(p_main: Control, p_level_id: String, expedition := false) -> void:
+func _init(p_main: Control, p_sim: BattleSim) -> void:
 	main = p_main
-	level_id = p_level_id
-	sim = BattleSim.new(level_id, Game.formation_troops(), expedition, Game.take_queued_potions())
+	sim = p_sim
+	level_id = sim.level_id
 
 
 func _ready() -> void:
@@ -42,8 +45,10 @@ func _ready() -> void:
 	margin.add_child(frame)
 
 	var head := UI.hbox(10)
-	head.add_child(UI.icon("icon_" + sim.level["element"], 34))
-	head.add_child(UI.label(("Expedition: " if sim.expedition else "") + sim.level["name"], "Title"))
+	_element_icon = UI.icon("icon_" + sim.element(), 34)
+	head.add_child(_element_icon)
+	_title = UI.label(sim.level.get("name", ""), "Title")
+	head.add_child(_title)
 	head.add_child(UI.spacer())
 	_wave = UI.label("", "Muted")
 	head.add_child(_wave)
@@ -61,8 +66,9 @@ func _ready() -> void:
 	_controls.add_child(_pause)
 	_controls.add_child(_speed)
 	_controls.add_child(_potions_button())
-	if Game.level_state(level_id)["conquered"]:
-		_controls.add_child(UI.button("Skip", sim.resolve))  # expeditions skip to the next checkpoint
+	# Skip once the foes' land is conquered; expeditions skip to the next checkpoint.
+	_skip = UI.button("Skip", sim.resolve)
+	_controls.add_child(_skip)
 	_controls.add_child(UI.spacer())
 	_controls.add_child(UI.button("Retreat", _confirm_retreat, "DangerButton"))
 	col.add_child(_controls)
@@ -77,6 +83,11 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	var el := sim.element()
+	if sim.expedition:
+		_title.text = "Expedition · %s foes" % el.capitalize()
+		_element_icon.texture = UI.tex("icon_" + el)
+	_skip.visible = Game.level_state(GameData.land_of(el))["conquered"]
 	if sim.seen.size() != _seen_count:
 		_seen_count = sim.seen.size()
 		Game.mark_enemies_seen(sim.seen.keys())
@@ -87,7 +98,7 @@ func _process(_delta: float) -> void:
 	else:
 		_wave.text = "Wave %d / %d%s" % [sim.wave + 1, sim.wave_count(), " · Boss" if sim.is_boss_wave() else ""]
 	if _loot:
-		_loot.text = "Loot so far: %s" % _loot_text(sim.loot_xp, sim.loot_items, sim.loot_seeds)
+		_loot.text = "Loot so far: %s" % _loot_text(sim)
 	if sim.phase == "checkpoint" and _checkpoint == null:
 		_show_checkpoint()
 	_refresh_buffs()
@@ -133,8 +144,13 @@ func _refresh_buffs() -> void:
 			_buffs.add_child(UI.panel(chip, "Card"))
 
 
-static func _loot_text(xp: int, items: Dictionary, seeds: Dictionary) -> String:
-	var parts := ["+%d growth" % xp]
+static func _loot_text(b: BattleSim) -> String:
+	var items := b.loot_items
+	var seeds := b.loot_seeds
+	var parts := ["+%d growth" % b.loot_xp]
+	for el in GameData.ELEMENTS:
+		if b.loot_power.get(el, 0) > 0:
+			parts.append("%d %s power" % [b.loot_power[el], el])
 	for id in GameData.ITEM_ORDER:
 		if items.get(id, 0) > 0:
 			parts.append("%d× %s" % [items[id], GameData.ITEMS[id]["name"]])
@@ -160,9 +176,15 @@ func _show_checkpoint() -> void:
 	var t := UI.label("Checkpoint: wave %d cleared!" % sim.waves_cleared, "Title")
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(t)
-	box.add_child(UI.label("Loot: " + _loot_text(sim.loot_xp, sim.loot_items, sim.loot_seeds), "Heading", true))
+	box.add_child(UI.label("Loot: " + _loot_text(sim), "Heading", true))
 	var alive := sim.allies.filter(func(u) -> bool: return u.alive()).size()
 	box.add_child(UI.label("%d troop%s still standing." % [alive, "" if alive == 1 else "s"]))
+	var next_el := GameData.expedition_element(sim.waves_cleared)
+	var next := UI.hbox(6)
+	next.add_child(UI.label("Waves %d–%d:" % [sim.waves_cleared + 1, sim.waves_cleared + GameData.EXPEDITION_CHECKPOINT]))
+	next.add_child(UI.icon("icon_" + next_el, 26))
+	next.add_child(UI.label("%s foes" % next_el.capitalize()))
+	box.add_child(next)
 	var warn := UI.label("Return now to keep everything, or press on to wave %d for more. If your squad falls or retreats before then, all the loot is lost."
 		% (sim.waves_cleared + GameData.EXPEDITION_CHECKPOINT), "Small", true)
 	box.add_child(warn)
@@ -188,7 +210,14 @@ func _toggle_pause() -> void:
 
 
 func _toggle_speed() -> void:
-	_canvas.speed = 2.0 if _canvas.speed == 1.0 else 1.0
+	# Cycles 1× → 2× → 5× → 1×.
+	match _canvas.speed:
+		1.0:
+			_canvas.speed = 2.0
+		2.0:
+			_canvas.speed = 5.0
+		_:
+			_canvas.speed = 1.0
 	_speed.text = "Speed %d×" % _canvas.speed
 
 
@@ -269,6 +298,12 @@ func _show_expedition_result() -> void:
 		if res["level_ups"] > 0:
 			growth += " · Tree reached level %d!" % res["new_level"]
 		box.add_child(UI.label(growth, "Heading"))
+		for el in GameData.ELEMENTS:
+			if res["power"].get(el, 0) > 0:
+				var row := UI.hbox(8)
+				row.add_child(UI.icon("icon_" + el, 32))
+				row.add_child(UI.label("+%d %s power" % [res["power"][el], el]))
+				box.add_child(row)
 		for id in GameData.ITEM_ORDER:
 			if res["items"].get(id, 0) > 0:
 				var row := UI.hbox(8)
@@ -282,7 +317,7 @@ func _show_expedition_result() -> void:
 				row.add_child(UI.label("%d× %s (plant it in the Garden)" % [res["seeds"][id], GameData.SEEDS[id]["name"]]))
 				box.add_child(row)
 	elif sim.loot_xp > 0:
-		var gone := UI.label("The squad didn't make it home. Lost loot: " + _loot_text(sim.loot_xp, sim.loot_items, sim.loot_seeds), "", true)
+		var gone := UI.label("The squad didn't make it home. Lost loot: " + _loot_text(sim), "", true)
 		box.add_child(gone)
 	if res["lost"] > 0:
 		var lost := UI.label("%d troop%s fell and %s lost for good." % [res["lost"], "" if res["lost"] == 1 else "s", "is" if res["lost"] == 1 else "are"], "Heading", true)

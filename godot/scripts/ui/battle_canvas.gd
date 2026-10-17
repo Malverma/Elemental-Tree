@@ -37,7 +37,7 @@ func _draw() -> void:
 	var x0 := VIEW.position.x
 	var w := VIEW.size.x
 	var h := VIEW.size.y
-	var tint: Color = GameData.BIOME_COLORS[sim.level["element"]]
+	var tint: Color = GameData.BIOME_COLORS[sim.element()]
 
 	# Ground, enemy territory tint and lane paths.
 	draw_polygon(PackedVector2Array([Vector2(x0, 0), Vector2(x0 + w, 0), Vector2(x0 + w, h), Vector2(x0, h)]),

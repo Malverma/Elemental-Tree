@@ -94,20 +94,22 @@ func _init() -> void:
 
 	# Expeditions: always press on, to see how deep each squad gets.
 	print("\nExpeditions (always pressing on)")
+	# The first entry is a label only: every expedition sets out from the Home Grove.
 	var expeditions := [
-		["sunny_meadow", ["soldier", "soldier", "soldier"]],
-		["sunny_meadow", ["soldier", "soldier", "spearman", "archer"]],
-		["whispering_spring", ["soldier", "soldier", "soldier", "spearman", "spearman", "archer"]],
-		["ember_vent", ["soldier:water", "soldier:water", "soldier", "spearman", "archer", "tide_caller"]],
-		["gloomroot_cavern", ["vine_lasher", "soldier:nature", "soldier:nature", "spearman", "archer", "archer", "archer:nature"]],
+		["3 troops", ["soldier", "soldier", "soldier"]],
+		["4 troops", ["soldier", "soldier", "spearman", "archer"]],
+		["6 troops", ["soldier", "soldier", "soldier", "spearman", "spearman", "archer"]],
+		["6 mixed", ["soldier:water", "soldier:water", "soldier", "spearman", "archer", "tide_caller"]],
+		["7 mixed", ["vine_lasher", "soldier:nature", "soldier:nature", "spearman", "archer", "archer", "archer:nature"]],
 	]
 	for sc in expeditions:
 		var waves := 0
 		var cp1 := 0
 		var cp2 := 0
 		var cp3 := 0
+		var power := 0
 		for i in RUNS:
-			var b := BattleSim.new(sc[0], _squad(sc[1]), true)
+			var b := BattleSim.new_expedition(_squad(sc[1]))
 			while true:
 				b.resolve()
 				if b.phase != "checkpoint" or b.waves_cleared >= 50:
@@ -118,8 +120,9 @@ func _init() -> void:
 			cp1 += 1 if b.waves_cleared >= 5 else 0
 			cp2 += 1 if b.waves_cleared >= 10 else 0
 			cp3 += 1 if b.waves_cleared >= 15 else 0
-		print("%-17s %-88s avg waves %.1f  reach 5: %3d%%  reach 10: %3d%%  reach 15: %3d%%" % [
-			sc[0], str(sc[1]), float(waves) / RUNS, 100 * cp1 / RUNS, 100 * cp2 / RUNS, 100 * cp3 / RUNS])
+			power += b.loot_power.values().reduce(func(x, y): return x + y, 0)
+		print("%-17s %-88s avg waves %.1f  reach 5: %3d%%  reach 10: %3d%%  reach 15: %3d%%  avg power %.1f" % [
+			sc[0], str(sc[1]), float(waves) / RUNS, 100 * cp1 / RUNS, 100 * cp2 / RUNS, 100 * cp3 / RUNS, float(power) / RUNS])
 
 	# Potions: the same squads with no potion, each combat potion, and both.
 	# A potion should help a close fight noticeably without making a hard one free.
@@ -156,7 +159,7 @@ func _init() -> void:
 			var drunk := 0
 			var runs := RUNS / 4  # expeditions are long; fewer runs keeps the check quick
 			for i in runs:
-				var b := BattleSim.new(sc[0], _squad(sc[1]), true, ps)
+				var b := BattleSim.new_expedition(_squad(sc[1]), ps)
 				drunk += ps.size()
 				while true:
 					b.resolve()

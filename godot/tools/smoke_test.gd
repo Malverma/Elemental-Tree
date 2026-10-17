@@ -39,6 +39,12 @@ func _run() -> void:
 	game.upgrade_part("branches")
 	game.channel()
 	_check(game.state["tree"]["level"] == 2 and game.state["tree"]["roots"] == 1, "upgrades and level up")
+	_check(GameData.xp_to_next(1) == 150 and GameData.xp_to_next(9) == 72000, "level 1 → 2 is 15 min of sunlight, 9 → 10 is 24 h")
+	_check(is_equal_approx(GameData.growth_minutes(12), GameData.STORAGE_CAP_MINUTES), "levels past 10 stay at 24 h of sunlight")
+	_check(not GameData.part_cost("roots", 2).has("sap") and not GameData.part_cost("trunk", 2).has("sap"), "part upgrades to level 3 cost no sap")
+	_check(GameData.part_cost("roots", 3).has("sap") and GameData.part_cost("trunk", 3).has("sap"), "part upgrades past level 3 cost sap")
+	_check(GameData.part_cost("branches", 8)["sunlight"] == roundi(GameData.xp_to_next(8) * 0.2 / 5.0) * 5, "part sunlight follows the growth curve")
+	_check(not game.has_seen_enemy("burrow_rabbit"), "meadow foes unknown before the first battle")
 
 	main.switch_tab("barracks")
 	await _frames()
@@ -64,6 +70,11 @@ func _run() -> void:
 	await _frames(10)
 	var view: Node = main._battle
 	_check(view != null, "battle opened")
+	var speeds := []
+	for i in 3:
+		view._toggle_speed()
+		speeds.append(view._canvas.speed)
+	_check(speeds == [2.0, 5.0, 1.0] and view._speed.text == "Speed 1×", "speed button cycles 1× → 2× → 5× → 1×")
 	view._canvas.speed = 50.0
 	var t := 0
 	while not view.sim.is_over() and t < 2000:
@@ -73,6 +84,7 @@ func _run() -> void:
 	_check(view.sim.is_over(), "battle finished (%s, %d waves, %d fallen)" % [view.sim.phase, view.sim.waves_cleared, view.sim.fallen.size()])
 	_check(game.level_state("sunny_meadow")["conquered"] == (view.sim.phase == "won"), "conquest recorded")
 	var first_won: bool = view.sim.phase == "won"
+	_check(game.has_seen_enemy("burrow_rabbit"), "foes met in battle are revealed")
 	main.close_battle()
 	await _frames()
 
@@ -125,10 +137,22 @@ func _run() -> void:
 		_check(b.is_over(), "%s battle runs (%s)" % [id, b.phase])
 		b.dispose()
 
-	# Expeditions: endless waves with a checkpoint every 5; loot only kept on a return.
-	var exp_wave := GameData.expedition_wave("sunny_meadow", 4)
+	# Expeditions: endless waves from the Home Grove with a checkpoint every 5; loot only kept on a return.
+	var exp_wave := GameData.expedition_wave(4)
 	_check(GameData.ENEMIES[exp_wave[0]].get("boss", false), "expedition wave 5 is a boss wave")
-	var lost_exp := BattleSim.new("sunny_meadow", game.formation_troops(), true)
+	var stretch_ok := true
+	for w in 10:
+		var want := "nature" if w < 5 else "water"
+		for key in GameData.expedition_wave(w):
+			stretch_ok = stretch_ok and GameData.ENEMIES[key]["element"] == want
+	_check(stretch_ok and GameData.expedition_element(25) == "nature", "each 5-wave stretch shares one element, cycling")
+	var kill_exp := BattleSim.new_expedition(game.formation_troops())
+	for e in kill_exp.enemies:
+		kill_exp._apply_damage(e, 9999.0)
+	kill_exp._apply_damage(kill_exp.enemies[0], 9999.0)  # already down: no extra power
+	_check(kill_exp.loot_power == {"nature": kill_exp.enemies.size()}, "each defeated foe gives 1 power of its element")
+	kill_exp.dispose()
+	var lost_exp := BattleSim.new_expedition(game.formation_troops())
 	lost_exp.loot_xp = 999
 	lost_exp.loot_items = {"growth_tonic": 2}
 	lost_exp.phase = "lost"
@@ -141,10 +165,17 @@ func _run() -> void:
 
 	game.state["levels"]["sunny_meadow"]["conquered"] = true
 	main.switch_tab("map")
+	main.ui["selected_level"] = "grove"
+	main.render()
+	await _frames()
+	var starts: Array = main._view.find_children("*", "Button", true, false).filter(func(b): return b.text == "Start expedition")
+	_check(starts.size() == 1 and not starts[0].disabled, "Home Grove offers an expedition")
 	main.ui["selected_level"] = "sunny_meadow"
 	main.render()
 	await _frames()
-	main.start_battle("sunny_meadow", true)
+	var land_btns: Array = main._view.find_children("*", "Button", true, false).map(func(b): return b.text)
+	_check("Start expedition" not in land_btns and "Battle again" in land_btns, "lands offer battles, not expeditions")
+	main.start_expedition()
 	await _frames(5)
 	view = main._battle
 	_check(view != null and view.sim.expedition, "expedition opened")
@@ -162,6 +193,9 @@ func _run() -> void:
 		_check(view._checkpoint != null, "checkpoint offers a return home")
 		var loot_xp: int = view.sim.loot_xp
 		var loot_items: Dictionary = view.sim.loot_items.duplicate()
+		var loot_power: Dictionary = view.sim.loot_power.duplicate()
+		var nature0: float = game.state["resources"]["power"]["nature"]
+		_check(loot_power.keys() == ["nature"] and loot_power["nature"] == 3 * 4 + 2, "the nature stretch's 14 foes give 14 nature power (%s)" % loot_power)
 		_check(loot_items.values().reduce(func(a, b): return a + b, 0) >= 1, "boss checkpoint drops an item")
 		view.sim.return_home()
 		await _frames(5)
@@ -169,6 +203,7 @@ func _run() -> void:
 		for k in loot_items:
 			have += 1 if game.state["items"].get(k, 0) == loot_items[k] else 0
 		_check(have == loot_items.size(), "returning keeps the loot (%d growth, %s)" % [loot_xp, loot_items])
+		_check(game.state["resources"]["power"]["nature"] == nature0 + loot_power["nature"], "returning keeps the elemental power")
 		var seed_total: int = view.sim.loot_seeds.values().reduce(func(a, b): return a + b, 0)
 		_check(seed_total >= 1 and game.state["seeds"].values().reduce(func(a, b): return a + b, 0) >= seed_total,
 			"boss checkpoint drops a seed and returning keeps it (%s)" % view.sim.loot_seeds)
@@ -255,7 +290,7 @@ func _run() -> void:
 	await _frames()
 
 	# Potions wear off after POTION_WAVES waves on an expedition.
-	var ex := BattleSim.new("sunny_meadow", game.formation_troops(), true, ["bark_brew"])
+	var ex := BattleSim.new_expedition(game.formation_troops(), ["bark_brew"])
 	var max0: float = ex.allies[0].max_hp
 	for w in GameData.POTION_WAVES:
 		ex._expire_potions(w + 1)

@@ -57,7 +57,7 @@ func _refresh() -> void:
 		total += Game.item_count(id)
 		_list.add_child(_row(id))
 	if total == 0 and Game.state["queued_potions"].is_empty():
-		_list.add_child(UI.label("No potions yet. Expeditions on the World Map turn them up.", "Small", true))
+		_list.add_child(UI.label("No potions yet. Expeditions from the Home Grove (World Map) turn them up.", "Small", true))
 
 
 func _row(id: String) -> Control:

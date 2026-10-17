@@ -74,17 +74,11 @@ func _ready() -> void:
 	bar.custom_minimum_size.y = 18
 	bar.show_percentage = false
 	g.add_child(bar)
-	g.add_child(UI.label("%d / %d growth. Channel sunlight or win battles to grow. Each tree part can be upgraded up to the tree's level."
+	g.add_child(UI.label("%d / %d sunlight. Channel sunlight or win battles to grow. Each tree part can be upgraded up to the tree's level."
 		% [tree["xp"], need], "Small", true))
-	var buttons := UI.hbox(10)
-	var ch10 := UI.button("Channel 10", Game.channel.bind(10))
-	ch10.icon = UI.tex("icon_sunlight")
-	ch10.add_theme_constant_override("icon_max_width", 24)
-	buttons.add_child(ch10)
 	var ch_max := UI.button("Channel to next level", Game.channel.bind(-1))
 	ch_max.size_flags_horizontal = SIZE_EXPAND_FILL
-	buttons.add_child(ch_max)
-	g.add_child(buttons)
+	g.add_child(ch_max)
 	var r := Game.rates()
 	for pair in [["icon_sunlight", "%d sunlight / min" % r["sunlight"]], ["icon_sap", "%d sap / min" % r["sap"]]]:
 		var row := UI.hbox(8)

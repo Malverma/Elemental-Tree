@@ -17,6 +17,7 @@ const BODY := 22.0
 # Units fight within this band around the three lanes.
 const MIN_X := 195.0
 const MAX_X := 535.0
+static var tune_scale := 1.0  # TUNE-TEMP
 
 
 class Unit:
@@ -37,6 +38,9 @@ class Unit:
 	var burn_t := 0.0
 	var burn_dps := 0.0
 	var burn_shown := 0.0  # burn damage not yet shown as a popup
+	# A foe hit by a melee troop turns on it for a while (GameData.TAUNT_TIME).
+	var taunted_by: Unit
+	var taunt_t := 0.0
 
 	func _init(p_side: String, p_def: Dictionary, p_pos: Vector2) -> void:
 		side = p_side
@@ -69,8 +73,8 @@ class DamagePopup:
 	var burn := false
 
 
-var level_id: String
-var level: Dictionary
+var level_id: String  # "grove" for an expedition
+var level: Dictionary  # empty for an expedition
 var allies: Array[Unit] = []
 var enemies: Array[Unit] = []
 var projectiles: Array[Projectile] = []
@@ -90,6 +94,7 @@ var expedition := false
 var loot_xp := 0
 var loot_items := {}  # item_id -> count
 var loot_seeds := {}  # seed_id -> count
+var loot_power := {}  # element -> power from defeated foes
 # Potions drunk this battle: item_id -> index of the last wave they last through.
 var potions := {}
 
@@ -98,7 +103,7 @@ var potions := {}
 # potions: item ids drunk before the battle, active from the first wave.
 func _init(p_level_id: String, formation: Array, p_expedition := false, p_potions := []) -> void:
 	level_id = p_level_id
-	level = GameData.LEVELS[level_id]
+	level = GameData.LEVELS.get(level_id, {})
 	expedition = p_expedition
 	for f in formation:
 		var u := Unit.new("ally", GameData.troop_def(f["troop"]), Vector2(LANE_X[f["lane"]], ROW_Y[f["row"]]))
@@ -107,6 +112,16 @@ func _init(p_level_id: String, formation: Array, p_expedition := false, p_potion
 	_spawn_wave(0)
 	for id in p_potions:
 		drink(id)
+
+
+## An expedition from the Home Grove (its waves don't belong to any land).
+static func new_expedition(formation: Array, p_potions := []) -> BattleSim:
+	return BattleSim.new("grove", formation, true, p_potions)
+
+
+## The element of the current wave's foes.
+func element() -> String:
+	return GameData.expedition_element(wave) if expedition else level["element"]
 
 
 func is_over() -> bool:
@@ -196,8 +211,8 @@ func _spawn_wave(index: int) -> void:
 	wave = index
 	wave_time = 0.0
 	enemies.clear()
-	var list: Array = GameData.expedition_wave(level_id, index) if expedition else level["waves"][index]
-	var scale := GameData.expedition_scale(index) if expedition else 1.0
+	var list: Array = GameData.expedition_wave(index) if expedition else level["waves"][index]
+	var scale: float = GameData.expedition_scale(index) if expedition else tune_scale
 	for i in list.size():
 		seen[list[i]] = true
 		var def: Dictionary = GameData.ENEMIES[list[i]]
@@ -217,6 +232,13 @@ func _spawn_wave(index: int) -> void:
 
 func _pick_target(unit: Unit, foes: Array[Unit]) -> Unit:
 	var best: Unit = null
+	if unit.def.get("dive", false):
+		# Divers rush the farthest-back row (allies stand at the bottom), nearest first.
+		for f in foes:
+			if f.alive() and (best == null or f.home.y > best.home.y + 1.0
+					or (absf(f.home.y - best.home.y) <= 1.0 and unit.pos.distance_to(f.pos) < unit.pos.distance_to(best.pos))):
+				best = f
+		return best
 	if unit.def.get("target_lowest_hp", false):
 		var range_px: float = unit.def["reach"] * GameData.REACH_UNIT + BODY
 		for f in foes:
@@ -256,8 +278,13 @@ func _apply_damage(target: Unit, dmg: float, show := true) -> void:
 	if show:
 		target.flash = 0.15
 		_popup(target, dmg)
-	if not target.alive() and target.side == "ally":
+	if target.alive():
+		return
+	if target.side == "ally":
 		fallen.append(target.troop_id)
+	elif expedition:
+		var el: String = target.def["element"]
+		loot_power[el] = loot_power.get(el, 0) + GameData.EXPEDITION_KILL_POWER
 
 
 # A landed hit: armor, damage, then the attacker's elemental on-hit abilities.
@@ -270,8 +297,17 @@ func _hit(attacker: Unit, target: Unit, dmg: float) -> void:
 	var a := attacker.def
 	if a.has("lifesteal") and attacker.alive():
 		attacker.hp = minf(attacker.max_hp, attacker.hp + dealt * a["lifesteal"])
+	if a.has("cleave"):
+		var foes := allies if attacker.side == "enemy" else enemies
+		for f in foes:
+			if f != target and f.alive() and f.pos.distance_to(target.pos) <= GameData.CLEAVE_RADIUS:
+				_apply_damage(f, dmg * a["cleave"] * (1.0 - f.def.get("armor", 0.0)))
 	if not target.alive():
 		return
+	# Melee troops hold the line: a foe they hit turns to fight them.
+	if attacker.side == "ally" and a["reach"] <= 2 and not target.def.get("boss", false):
+		target.taunted_by = attacker
+		target.taunt_t = GameData.TAUNT_TIME
 	if a.has("burn"):
 		target.burn_dps = maxf(target.burn_dps if target.burn_t > 0.0 else 0.0, dmg * a["burn"])
 		target.burn_t = GameData.BURN_TIME
@@ -308,7 +344,10 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 		return
 	unit.cd -= dt
 	var slowed := unit.slow_t > 0.0
-	if unit.target == null or not unit.target.alive() or unit.def.get("target_lowest_hp", false):
+	unit.taunt_t = maxf(0.0, unit.taunt_t - dt)
+	if unit.taunt_t > 0.0 and unit.taunted_by.alive():
+		unit.target = unit.taunted_by
+	elif unit.target == null or not unit.target.alive() or unit.def.get("target_lowest_hp", false):
 		unit.target = _pick_target(unit, foes)
 	var t := unit.target
 	if t == null:
@@ -319,6 +358,9 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 	if d > reach + 1.0:
 		var step := minf(unit.def["speed"] * (0.6 if slowed else 1.0) * dt, d - reach)
 		unit.pos += (t.pos - unit.pos) / d * step
+		# Troops hold their formation: each guards a zone around its own spot.
+		if unit.side == "ally":
+			unit.pos = unit.home + (unit.pos - unit.home).limit_length(GameData.HOLD_RADIUS)
 	elif unit.cd <= 0.0:
 		unit.cd = unit.def["cooldown"] * (1.3 if slowed else 1.0)
 		var dmg := _damage_for(unit, t)
@@ -409,12 +451,12 @@ func step(dt: float) -> void:
 
 
 func _collect_wave_loot() -> void:
-	loot_xp += roundi(GameData.expedition_wave_xp(level_id, wave) * (1.0 + boost("xp")))
+	loot_xp += roundi(GameData.expedition_wave_xp(wave) * (1.0 + boost("xp")))
 	if GameData.is_expedition_checkpoint(wave) or randf() < GameData.EXPEDITION_ITEM_CHANCE:
 		var item: String = GameData.ITEM_ORDER.pick_random()
 		loot_items[item] = loot_items.get(item, 0) + 1
 	if GameData.is_expedition_checkpoint(wave) or randf() < GameData.EXPEDITION_SEED_CHANCE:
-		var seed_id := GameData.roll_seed(level_id)
+		var seed_id := GameData.roll_seed(element())
 		loot_seeds[seed_id] = loot_seeds.get(seed_id, 0) + 1
 
 
@@ -430,4 +472,5 @@ func resolve() -> void:
 func dispose() -> void:
 	for u in allies + enemies:
 		u.target = null
+		u.taunted_by = null
 	projectiles.clear()

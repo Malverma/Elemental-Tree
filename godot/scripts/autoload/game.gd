@@ -575,6 +575,12 @@ func can_enter(id: String) -> Dictionary:
 	return _ok()
 
 
+func can_start_expedition() -> Dictionary:
+	if formation_troops().is_empty():
+		return _fail("Place troops in your formation first.")
+	return _ok()
+
+
 # Applies a finished battle. Fallen troops are lost for good.
 func apply_battle_result(b: BattleSim) -> Dictionary:
 	var lost := _remove_fallen(b)
@@ -625,8 +631,10 @@ func apply_expedition_result(b: BattleSim) -> Dictionary:
 			state["items"][item] = state["items"].get(item, 0) + b.loot_items[item]
 		for seed_id in b.loot_seeds:
 			state["seeds"][seed_id] = state["seeds"].get(seed_id, 0) + b.loot_seeds[seed_id]
+		for el in b.loot_power:
+			state["resources"]["power"][el] += b.loot_power[el]
 		level_ups = _add_xp(b.loot_xp)
 	save()
 	changed.emit()
-	return {"returned": returned, "xp": b.loot_xp, "items": b.loot_items, "seeds": b.loot_seeds, "lost": lost,
+	return {"returned": returned, "xp": b.loot_xp, "items": b.loot_items, "seeds": b.loot_seeds, "power": b.loot_power, "lost": lost,
 		"level_ups": level_ups, "new_level": state["tree"]["level"]}

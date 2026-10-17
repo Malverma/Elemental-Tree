@@ -31,7 +31,54 @@ func _ready() -> void:
 	live()
 
 
+# The Home Grove: where expeditions set out from.
+func _grove_info() -> Control:
+	var box := UI.vbox(10)
+	var head := UI.hbox(10)
+	head.add_child(UI.icon("icon_nature", 34))
+	head.add_child(UI.label("Home Grove", "Title"))
+	box.add_child(head)
+	box.add_child(UI.label("Your tree's home. Expeditions set out from here.", "Muted", true))
+
+	box.add_child(UI.label("Expedition", "Heading"))
+	box.add_child(UI.label("Fight endless, ever-stronger waves for loot. Every %d waves share one element, and each stretch ends with that element's boss at a checkpoint where you can head home with your loot. If the squad falls or retreats before then, the loot is lost, and fallen troops are gone for good."
+		% GameData.EXPEDITION_CHECKPOINT, "", true))
+
+	box.add_child(UI.label("Element order", "Heading"))
+	var order := HFlowContainer.new()
+	order.add_theme_constant_override("h_separation", 8)
+	order.add_theme_constant_override("v_separation", 8)
+	for i in GameData.ELEMENTS.size():
+		var el := GameData.expedition_element(i * GameData.EXPEDITION_CHECKPOINT)
+		var chip := UI.hbox(6)
+		chip.add_child(UI.icon("icon_" + el, 26))
+		chip.add_child(UI.label("Waves %d–%d" % [i * GameData.EXPEDITION_CHECKPOINT + 1, (i + 1) * GameData.EXPEDITION_CHECKPOINT], "Small"))
+		order.add_child(UI.panel(chip, "Card"))
+	box.add_child(order)
+	box.add_child(UI.label("Then the cycle repeats, stronger each time.", "Small", true))
+
+	box.add_child(UI.label("Rewards", "Heading"))
+	box.add_child(UI.label("• Growth for every wave cleared (double for bosses)", "", true))
+	box.add_child(UI.label("• %d elemental power for each foe defeated, of that foe's element" % GameData.EXPEDITION_KILL_POWER, "", true))
+	var drops := UI.hbox(6)
+	drops.add_child(UI.label("• Potions and garden seeds"))
+	drops.add_child(UI.icon(GameData.ITEMS["thorn_draught"]["img"], 28))
+	drops.add_child(UI.icon(GameData.SEEDS["sapling"]["img"], 28))
+	box.add_child(drops)
+	box.add_child(UI.label("Each boss checkpoint always drops a potion and a seed.", "Small", true))
+
+	var check := Game.can_start_expedition()
+	var start := UI.button("Start expedition", main.start_expedition, "PrimaryButton")
+	start.disabled = not check["ok"]
+	box.add_child(start)
+	if not check["ok"]:
+		box.add_child(UI.label(check["msg"], "Hint"))
+	return box
+
+
 func _level_info(id: String) -> Control:
+	if id == "grove":
+		return _grove_info()
 	var l: Dictionary = GameData.LEVELS[id]
 	var ls := Game.level_state(id)
 	var box := UI.vbox(10)
@@ -64,11 +111,16 @@ func _level_info(id: String) -> Control:
 			var e: Dictionary = GameData.ENEMIES[key]
 			var known := Game.has_seen_enemy(key)
 			var chip := UI.hbox(6)
-			var pic := UI.icon(e["img"], 44)
-			if not known:
-				pic.modulate = Color(0, 0, 0, 0.55)  # silhouette until met in battle
-			chip.add_child(pic)
-			var name_l := UI.label((e["name"] if known else "???") + (" (boss)" if e.get("boss", false) else ""))
+			if known:
+				chip.add_child(UI.icon(e["img"], 44))
+			else:
+				# Blank until met in battle: no picture, name or boss tag.
+				var blank := UI.label("?", "Title")
+				blank.custom_minimum_size = Vector2(44, 44)
+				blank.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				blank.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+				chip.add_child(blank)
+			var name_l := UI.label((e["name"] + (" (boss)" if e.get("boss", false) else "")) if known else "???")
 			name_l.add_theme_font_size_override("font_size", 20)
 			chip.add_child(name_l)
 			flow.add_child(UI.panel(chip, "Card"))
@@ -105,12 +157,6 @@ func _level_info(id: String) -> Control:
 	box.add_child(attack)
 	if not enter["ok"]:
 		box.add_child(UI.label(enter["msg"], "Hint"))
-		return box
-
-	box.add_child(UI.label("Expedition", "Heading"))
-	box.add_child(UI.label("Fight endless, ever-stronger waves of this land's foes for growth, potions and garden seeds. Every %d waves a boss guards a checkpoint where you can head home with your loot. If the squad falls or retreats before then, the loot is lost, and fallen troops are gone for good."
-		% GameData.EXPEDITION_CHECKPOINT, "Small", true))
-	box.add_child(UI.button("Start expedition", main.start_battle.bind(id, true)))
 	return box
 
 

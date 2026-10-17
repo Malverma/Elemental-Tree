@@ -12,6 +12,7 @@ const TABS := [["grove", "Grove"], ["garden", "Garden"], ["barracks", "Barracks"
 
 var tab := "grove"
 ## Screen state that survives redraws.
+## selected_level is a land id, or "grove" for the Home Grove (expeditions).
 var ui := {"selected_plot": -1, "selected_troop": -1, "selected_level": "sunny_meadow"}
 
 var _content: Control
@@ -232,12 +233,25 @@ func pop_text(text: String, at: Vector2, color: Color) -> void:
 	fade.tween_callback(l.queue_free)
 
 
-func start_battle(level_id: String, expedition := false) -> void:
+func start_battle(level_id: String) -> void:
 	var check := Game.can_enter(level_id)
 	if not check["ok"]:
 		show_toast(check["msg"], false)
 		return
-	_battle = BattleView.new(self, level_id, expedition)
+	_open_battle(BattleSim.new(level_id, Game.formation_troops(), false, Game.take_queued_potions()))
+
+
+## Sends the formation out from the Home Grove on an endless expedition.
+func start_expedition() -> void:
+	var check := Game.can_start_expedition()
+	if not check["ok"]:
+		show_toast(check["msg"], false)
+		return
+	_open_battle(BattleSim.new_expedition(Game.formation_troops(), Game.take_queued_potions()))
+
+
+func _open_battle(sim: BattleSim) -> void:
+	_battle = BattleView.new(self, sim)
 	_battle.set_anchors_preset(PRESET_FULL_RECT)
 	add_child(_battle)
 	move_child(_overlay, -1)
