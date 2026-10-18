@@ -74,6 +74,18 @@ func _init() -> void:
 		["gloomroot_cavern", ["soldier", "soldier", "soldier", "spearman", "spearman", "archer", "archer"]],
 		["gloomroot_cavern", ["vine_lasher", "soldier:nature", "soldier:nature", "spearman", "archer", "archer", "archer:nature"]],
 		["gloomroot_cavern", ["frost_warden", "frost_warden", "shade_twig", "spearman", "tide_caller", "archer", "archer"]],
+		# Outer lands: a full formation of plain troops, then squads built to counter each land.
+		["brambleheart_thicket", ["soldier", "soldier", "soldier", "spearman", "spearman", "spearman", "archer", "archer"]],
+		["brambleheart_thicket", ["frost_warden", "frost_warden", "soldier:ice", "spearman:ice", "spearman", "archer:fire", "archer:fire", "archer"]],
+		["sunken_lagoon", ["soldier", "soldier", "soldier", "spearman", "spearman", "spearman", "archer", "archer", "archer"]],
+		["sunken_lagoon", ["shade_twig", "shade_twig", "soldier:dark", "spearman:dark", "spearman", "archer:dark", "archer:dark", "archer"]],
+		["sunken_lagoon", ["shade_twig", "shade_twig", "soldier:dark", "spearman:dark", "spearman:dark", "archer:dark", "archer:dark", "archer:dark", "vine_lasher"]],
+		["steamvent_marsh", ["soldier", "soldier", "soldier", "spearman", "spearman", "spearman", "archer", "archer", "archer"]],
+		["steamvent_marsh", ["shade_twig", "frost_warden", "soldier:dark", "spearman:water", "spearman:dark", "archer:water", "archer:water", "archer:dark", "tide_caller"]],
+		["frostshade_barrows", ["soldier", "soldier", "soldier", "spearman", "spearman", "spearman", "archer", "archer", "archer"]],
+		["frostshade_barrows", ["ember_sprout", "ember_sprout", "soldier:nature", "spearman:fire", "spearman:nature", "archer:fire", "archer:fire", "archer:nature", "vine_lasher"]],
+		["blighted_heartwood", ["soldier", "soldier", "soldier", "spearman", "spearman", "spearman", "archer", "archer", "archer"]],
+		["blighted_heartwood", ["frost_warden", "frost_warden", "soldier:nature", "spearman:ice", "spearman:nature", "archer:ice", "archer:nature", "archer:ice", "vine_lasher"]],
 	]
 	for sc in scenarios:
 		var wins := 0

@@ -217,7 +217,12 @@ func _run() -> void:
 	game.state["seeds"] = {"sapling": 1, "fire": 1}
 	main.ui["selected_plot"] = -1
 	main.switch_tab("garden")
+	_check(main.tab != "garden", "the garden is locked before the first prestige")
+	game.state["tree"]["prestige"] = 1
+	main.switch_tab("garden")
 	await _frames()
+	_check(main.tab == "garden", "the garden opens after the first prestige")
+	game.state["tree"]["prestige"] = 0
 	_check(game.plant(0, "sapling")["ok"] and game.plant(1, "fire")["ok"], "seeds planted")
 	_check(not game.plant(0, "fire")["ok"], "can't plant in a used plot")
 	_check(game.state["seeds"].is_empty(), "planting uses up seeds")
@@ -296,6 +301,99 @@ func _run() -> void:
 		ex._expire_potions(w + 1)
 	_check(not ex.potion_active("bark_brew") and is_equal_approx(ex.allies[0].max_hp, max0 / 1.2), "potions wear off after %d waves" % GameData.POTION_WAVES)
 	ex.dispose()
+
+	# Prestige at the max level: costs double the last level, resets to 0, +10% bonus.
+	game.state = game.new_game()
+	game.state["tree"]["level"] = GameData.MAX_LEVEL - 1
+	game.state["resources"]["sunlight"] = GameData.xp_to_next(GameData.MAX_LEVEL - 1) + GameData.prestige_cost()
+	game.channel()
+	_check(game.state["tree"]["level"] == GameData.MAX_LEVEL and game._add_xp(10 ** 7) == 0, "the tree stops at level %d" % GameData.MAX_LEVEL)
+	game.state["tree"]["xp"] = 0
+	main.switch_tab("grove")
+	await _frames()
+	_check(GameData.prestige_cost() == 2 * GameData.xp_to_next(GameData.MAX_LEVEL - 1), "prestige costs double the last level")
+	var pres_sun0: float = game.state["resources"]["sunlight"]
+	var base_sun: float = game.rates()["sunlight"]
+	game.channel()
+	_check(game.state["tree"]["level"] == 0 and game.state["tree"]["prestige"] == 1 and pres_sun0 - game.state["resources"]["sunlight"] == GameData.prestige_cost(), "prestige resets the tree to level 0")
+	_check(is_equal_approx(game.rates()["sunlight"], base_sun * 1.1), "prestige boosts sunlight production by 10%")
+	var squad := [{"troop": {"id": 1, "type": "soldier", "element": ""}, "row": "front", "lane": 1}]
+	var strong := BattleSim.new("sunny_meadow", squad, false, [], game.prestige_mult())
+	var soldier: Dictionary = GameData.TROOPS["soldier"]
+	_check(is_equal_approx(strong.allies[0].def["dmg"], soldier["dmg"] * 1.1) and strong.allies[0].max_hp == roundi(soldier["hp"] * 1.1), "prestige boosts troop HP and damage by 10%")
+	strong.dispose()
+
+	# Dungeons: three at a time; a cleared one crumbles and another appears 30 minutes later.
+	game.state = game.new_game()
+	game.state["tree"]["roots"] = 4
+	game.tick()
+	var dgs: Array = game.state["dungeons"]
+	_check(dgs.size() == GameData.DUNGEON_COUNT, "%d dungeons appear on the map" % GameData.DUNGEON_COUNT)
+	var spots_ok := true
+	for i in dgs.size():
+		var dp := Vector2(dgs[i]["x"], dgs[i]["y"])
+		spots_ok = spots_ok and dp.distance_to(GameData.GROVE) >= GameData.DUNGEON_GAP and dgs[i]["distance"] <= GameData.DUNGEON_START_MAX
+		for id in GameData.LEVELS:
+			spots_ok = spots_ok and dp.distance_to(GameData.LEVELS[id]["pos"]) >= GameData.DUNGEON_GAP
+		for j in i:
+			spots_ok = spots_ok and dp.distance_to(Vector2(dgs[j]["x"], dgs[j]["y"])) >= GameData.DUNGEON_GAP
+	_check(spots_ok, "dungeons start within reach %d, clear of lands, the grove and each other" % GameData.DUNGEON_START_MAX)
+	var rolls_ok := true
+	for el in GameData.ELEMENTS:
+		for dist in range(1, 11):
+			var r := GameData.roll_dungeon(el, dist)
+			rolls_ok = rolls_ok and r["waves"].size() == GameData.DUNGEON_WAVES \
+				and GameData.ENEMIES[r["waves"][-1][0]].get("boss", false)
+			for w in r["waves"]:
+				for key in w:
+					rolls_ok = rolls_ok and GameData.ENEMIES[key]["element"] == el
+	_check(rolls_ok, "every element rolls a dungeon of its own foes ending in a boss, at every distance")
+	var did: String = game.dungeon_id(dgs[0])
+	var del: String = dgs[0]["element"]
+	var ddist: int = dgs[0]["distance"]
+	game.state["tree"]["roots"] = maxi(game.state["tree"]["roots"], ddist)  # dungeons may start past the roots
+	game.state["formation"] = []
+	_check(not game.can_enter_dungeon(did)["ok"], "a dungeon needs a formation")
+	game.state["troops"] = [{"id": 1, "type": "soldier", "element": ""}]
+	game.state["formation"] = [{"troop_id": 1, "row": "front", "lane": 1}]
+	main.ui["selected_level"] = did
+	main.switch_tab("map")
+	await _frames()
+	main.start_dungeon(did)
+	await _frames()
+	var dv: Node = main._battle
+	_check(dv != null and dv.sim.dungeon and dv.sim.level["elements"] == [del], "entering a dungeon opens its battle")
+	dv.sim.phase = "won"
+	dv.sim.waves_cleared = GameData.DUNGEON_WAVES
+	var dres: Dictionary = game.apply_dungeon_result(dv.sim)
+	var n_potions := 0
+	for k in dres["items"]:
+		n_potions += dres["items"][k]
+	_check(n_potions == GameData.dungeon_reward_count(ddist), "a cleared dungeon gives potions")
+	_check(dres["seeds"].is_empty(), "no seeds from dungeons before the first prestige")
+	_check(game.dungeon(did).is_empty() and game.state["dungeons"].size() == GameData.DUNGEON_COUNT - 1, "a cleared dungeon crumbles")
+	game.tick()
+	_check(game.state["dungeons"].size() == GameData.DUNGEON_COUNT - 1 and game.next_dungeon_in() > 29 * 60, "the next dungeon waits 30 minutes")
+	dv.sim.dispose()
+	main.close_battle()
+	await _frames()
+	var next_dist: int = game.state["dungeon_respawns"][0]["distance"]
+	_check(next_dist - ddist in [1, 2] or next_dist == GameData.DUNGEON_MAX_DISTANCE, "the next dungeon is 1 or 2 reach farther out (%d → %d)" % [ddist, next_dist])
+	var known_ids: Array = game.state["dungeons"].map(func(x): return x["id"])
+	game.state["dungeon_respawns"][0]["at"] -= GameData.DUNGEON_RESPAWN_MINUTES * 60.0
+	game.tick()
+	_check(game.state["dungeons"].size() == GameData.DUNGEON_COUNT and game.next_dungeon_in() < 0, "a new dungeon appears once the wait is over")
+	var fresh: Array = game.state["dungeons"].filter(func(x): return not x["id"] in known_ids)
+	_check(fresh.size() == 1 and fresh[0]["distance"] == next_dist, "the new dungeon appears at its rolled distance")
+	game.state["tree"]["prestige"] = 1
+	var d2: Dictionary = game.state["dungeons"][0]
+	var sim2 := BattleSim.new(game.dungeon_id(d2), game.formation_troops(), false, [], 1.0, game.dungeon_level(d2))
+	sim2.phase = "won"
+	var dres2: Dictionary = game.apply_dungeon_result(sim2)
+	_check(not dres2["seeds"].is_empty(), "prestiged players also get garden seeds from dungeons")
+	sim2.dispose()
+	var dsaved: Dictionary = game._normalize(JSON.parse_string(JSON.stringify(game.state)))
+	_check(dsaved["dungeons"].size() == GameData.DUNGEON_COUNT - 1 and dsaved["dungeons"][0]["id"] is int, "dungeons survive save/load")
 
 	game.state = game.new_game()
 	game.save()

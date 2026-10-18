@@ -14,6 +14,9 @@ const WAVE_HEAL := 0.25  # expeditions only; level battles carry damage from wav
 const TIME_LIMIT := 240.0
 const PROJECTILE_SPEED := 380.0
 const BODY := 22.0
+# A wave still going after this many seconds is a stalemate (say, a ranged foe
+# hovering just past the formation): the troops break formation and charge.
+const CHARGE_TIME := 20.0
 # Units fight within this band around the three lanes.
 const MIN_X := 195.0
 const MAX_X := 535.0
@@ -91,6 +94,7 @@ var seen := {}  # enemy keys that have appeared in this battle
 # Expeditions run endless scaling waves and stop at each checkpoint so the
 # player can head home ("won") or press on. Loot is only kept on a return.
 var expedition := false
+var dungeon := false  # a world-map dungeon; `level` is built from it rather than GameData.LEVELS
 var loot_xp := 0
 var loot_items := {}  # item_id -> count
 var loot_seeds := {}  # seed_id -> count
@@ -101,12 +105,19 @@ var potions := {}
 
 # formation: [{ "troop": {id, type, element}, "row": "front"|"middle"|"back", "lane": 0..2 }]
 # potions: item ids drunk before the battle, active from the first wave.
-func _init(p_level_id: String, formation: Array, p_expedition := false, p_potions := []) -> void:
+# power: the prestige multiplier on troop HP and damage.
+# p_level: a dungeon's level (see Game.dungeon_level), used instead of GameData.LEVELS.
+func _init(p_level_id: String, formation: Array, p_expedition := false, p_potions := [], power := 1.0, p_level := {}) -> void:
 	level_id = p_level_id
-	level = GameData.LEVELS.get(level_id, {})
+	level = GameData.LEVELS.get(level_id, p_level)
+	dungeon = not p_level.is_empty()
 	expedition = p_expedition
 	for f in formation:
-		var u := Unit.new("ally", GameData.troop_def(f["troop"]), Vector2(LANE_X[f["lane"]], ROW_Y[f["row"]]))
+		var def := GameData.troop_def(f["troop"])
+		if power != 1.0:
+			def["hp"] = roundi(def["hp"] * power)
+			def["dmg"] = def["dmg"] * power
+		var u := Unit.new("ally", def, Vector2(LANE_X[f["lane"]], ROW_Y[f["row"]]))
 		u.troop_id = f["troop"]["id"]
 		allies.append(u)
 	_spawn_wave(0)
@@ -115,13 +126,23 @@ func _init(p_level_id: String, formation: Array, p_expedition := false, p_potion
 
 
 ## An expedition from the Home Grove (its waves don't belong to any land).
-static func new_expedition(formation: Array, p_potions := []) -> BattleSim:
-	return BattleSim.new("grove", formation, true, p_potions)
+static func new_expedition(formation: Array, p_potions := [], power := 1.0) -> BattleSim:
+	return BattleSim.new("grove", formation, true, p_potions, power)
 
 
-## The element of the current wave's foes.
+## The element of the current wave's foes (the most common one in a two-element land).
 func element() -> String:
-	return GameData.expedition_element(wave) if expedition else level["element"]
+	if expedition:
+		return GameData.expedition_element(wave)
+	var count := {}
+	for key in level["waves"][wave]:
+		var el: String = GameData.ENEMIES[key]["element"]
+		count[el] = count.get(el, 0) + 1
+	var best: String = level["elements"][0]
+	for el in level["elements"]:
+		if count.get(el, 0) > count.get(best, 0):
+			best = el
+	return best
 
 
 func is_over() -> bool:
@@ -212,7 +233,8 @@ func _spawn_wave(index: int) -> void:
 	wave_time = 0.0
 	enemies.clear()
 	var list: Array = GameData.expedition_wave(index) if expedition else level["waves"][index]
-	var scale: float = GameData.expedition_scale(index) if expedition else tune_scale
+	var scale: float = GameData.expedition_scale(index) if expedition else level.get("scale", 1.0) * tune_scale
+	var bosses := 0
 	for i in list.size():
 		seen[list[i]] = true
 		var def: Dictionary = GameData.ENEMIES[list[i]]
@@ -224,7 +246,9 @@ func _spawn_wave(index: int) -> void:
 		var depth := i / 3
 		var p: Vector2
 		if def.get("boss", false):
-			p = Vector2(LANE_X[1], 200)
+			# A second boss stands off to the side of the first.
+			p = Vector2(LANE_X[[1, 0, 2][bosses % 3]], 200 - (0 if bosses == 0 else 30))
+			bosses += 1
 		else:
 			p = Vector2(LANE_X[lane], 260 - depth * 90 - (0 if lane == 1 else 25))
 		enemies.append(Unit.new("enemy", def, p))
@@ -359,7 +383,7 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 		var step := minf(unit.def["speed"] * (0.6 if slowed else 1.0) * dt, d - reach)
 		unit.pos += (t.pos - unit.pos) / d * step
 		# Troops hold their formation: each guards a zone around its own spot.
-		if unit.side == "ally":
+		if unit.side == "ally" and wave_time < CHARGE_TIME:
 			unit.pos = unit.home + (unit.pos - unit.home).limit_length(GameData.HOLD_RADIUS)
 	elif unit.cd <= 0.0:
 		unit.cd = unit.def["cooldown"] * (1.3 if slowed else 1.0)

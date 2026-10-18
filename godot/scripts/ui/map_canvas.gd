@@ -1,12 +1,14 @@
 class_name MapCanvas
 extends Control
 ## Draws the world map: biomes, root paths, the home grove and level nodes.
-## Tapping a level node emits `level_selected` (with "grove" for the Home Grove).
+## Tapping a level node emits `level_selected` (with "grove" for the Home Grove,
+## or a dungeon's id for one of the dungeons that come and go on the map).
 
 signal level_selected(id: String)
 
-const DESIGN := Vector2(680, 640)
+const DESIGN := GameData.MAP_SIZE
 const NODE_R := 36.0
+const DUNGEON_R := 30.0
 
 var selected: String
 
@@ -15,7 +17,7 @@ func _init(p_selected: String) -> void:
 	selected = p_selected
 	mouse_filter = MOUSE_FILTER_PASS  # taps are handled here; drags scroll the page
 	clip_contents = true  # keeps biome tints inside the map
-	custom_minimum_size = Vector2(0, 640)
+	custom_minimum_size = Vector2(0, DESIGN.y)
 
 
 func _scale() -> float:
@@ -38,17 +40,15 @@ func _gui_input(event: InputEvent) -> void:
 				level_selected.emit(id)
 				accept_event()
 				return
+		for d in Game.state["dungeons"]:
+			if p.distance_to(Vector2(d["x"], d["y"])) <= DUNGEON_R + 10:
+				level_selected.emit(Game.dungeon_id(d))
+				accept_event()
+				return
 
 
 static func _path_points(from: String, to: String) -> PackedVector2Array:
-	var a := GameData.node_pos(from)
-	var b := GameData.node_pos(to)
-	var mid := (a + b) / 2.0 + Vector2(b.y - a.y, -(b.x - a.x)) * 0.15
-	var pts := PackedVector2Array()
-	for i in 25:
-		var t := i / 24.0
-		pts.append(a.lerp(mid, t).lerp(mid.lerp(b, t), t))
-	return pts
+	return GameData.root_path_points(from, to)
 
 
 func _dashed(pts: PackedVector2Array, color: Color, width: float) -> void:
@@ -56,9 +56,20 @@ func _dashed(pts: PackedVector2Array, color: Color, width: float) -> void:
 		draw_line(pts[i], pts[i + 1], color, width, true)
 
 
-func _text(at: Vector2, text: String, font_size: int, color: Color, bold := false) -> void:
+# `halo` rims the text in the map colour so root paths crossing it stay readable.
+func _text(at: Vector2, text: String, font_size: int, color: Color, bold := false, halo := false) -> void:
 	var font: Font = UI.bold_font() if bold else ThemeDB.fallback_font
+	if halo:
+		draw_string_outline(font, at - Vector2(150, 0), text, HORIZONTAL_ALIGNMENT_CENTER, 300, font_size, 8, Color(UI.MAP_BG, 0.9))
 	draw_string(font, at - Vector2(150, 0), text, HORIZONTAL_ALIGNMENT_CENTER, 300, font_size, color)
+
+
+# Half of a disc, starting at angle `from` and sweeping clockwise by PI.
+func _half_disc(center: Vector2, r: float, from: float, color: Color) -> void:
+	var pts := PackedVector2Array([center])
+	for i in 25:
+		pts.append(center + Vector2.from_angle(from + PI * i / 24.0) * r)
+	draw_colored_polygon(pts, color)
 
 
 func _draw() -> void:
@@ -66,11 +77,14 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, DESIGN), UI.MAP_BG)
 	var reach := Game.reach()
 
-	# Biome regions.
+	# Biome regions: a two-element land blends two patches side by side.
 	for id in GameData.LEVEL_ORDER:
 		var l: Dictionary = GameData.LEVELS[id]
-		draw_set_transform(_origin() + l["pos"] * _scale(), 0.0, Vector2(1.2, 1.0) * _scale())
-		draw_circle(Vector2.ZERO, 85, Color(GameData.BIOME_COLORS[l["element"]], 0.18))
+		var els: Array = l["elements"]
+		for i in els.size():
+			var off := Vector2(0.0 if els.size() == 1 else (i - 0.5) * 50.0, 0.0)
+			draw_set_transform(_origin() + (l["pos"] + off) * _scale(), 0.0, Vector2(1.2, 1.0) * _scale())
+			draw_circle(Vector2.ZERO, 80 if els.size() == 1 else 62, Color(GameData.BIOME_COLORS[els[i]], 0.18))
 	draw_set_transform(_origin(), 0.0, Vector2.ONE * _scale())
 
 	# Root paths: thick and glowing once the roots reach them, dashed before.
@@ -101,18 +115,57 @@ func _draw() -> void:
 		var ls := Game.level_state(id)
 		var p: Vector2 = l["pos"]
 		var alpha := 1.0
-		var fill: Color = GameData.BIOME_COLORS[l["element"]]
+		var els: Array = l["elements"]
 		if not l["playable"]:
-			fill = fill.lerp(Color(0.6, 0.6, 0.6), 0.75)
 			alpha = 0.65
 		elif not Game.can_reach(id):
 			alpha = 0.55
-		draw_circle(p, NODE_R, Color(fill, alpha))
+		# One element fills the node; two split it down the middle, each with its icon.
+		for i in els.size():
+			var fill: Color = GameData.BIOME_COLORS[els[i]]
+			if not l["playable"]:
+				fill = fill.lerp(Color(0.6, 0.6, 0.6), 0.75)
+			if els.size() == 1:
+				draw_circle(p, NODE_R, Color(fill, alpha))
+			else:
+				_half_disc(p, NODE_R, PI / 2 + PI * i, Color(fill, alpha))
+		if els.size() == 2:
+			draw_line(p - Vector2(0, NODE_R), p + Vector2(0, NODE_R), Color(UI.INK, alpha), 2, true)
 		var ring := UI.ROOT_GLOW if id == selected else UI.INK
 		draw_arc(p, NODE_R, 0, TAU, 48, Color(ring, alpha), 6 if id == selected else 3, true)
-		draw_texture_rect(UI.tex("icon_" + l["element"]), Rect2(p - Vector2(20, 20), Vector2(40, 40)), false, Color(1, 1, 1, alpha))
+		if els.size() == 1:
+			draw_texture_rect(UI.tex("icon_" + els[0]), Rect2(p - Vector2(20, 20), Vector2(40, 40)), false, Color(1, 1, 1, alpha))
+		else:
+			for i in 2:
+				draw_texture_rect(UI.tex("icon_" + els[i]), Rect2(p + Vector2(-30 + 32 * i, -14), Vector2(28, 28)), false, Color(1, 1, 1, alpha))
 		if ls["conquered"]:
 			draw_circle(p + Vector2(27, -27), 10, UI.ROOT_GLOW)
 			draw_arc(p + Vector2(27, -27), 10, 0, TAU, 24, UI.INK, 2, true)
-		_text(p + Vector2(0, NODE_R + 26), l["name"], 20, Color(UI.INK, maxf(alpha, 0.8)), true)
-		_text(p + Vector2(0, NODE_R + 48), "Reach %d" % l["distance"] if l["playable"] else "Coming soon", 17, UI.MUTED)
+
+	_draw_dungeons()
+
+	# Land names, drawn last so roots and dungeons never cover them.
+	for id in GameData.LEVEL_ORDER:
+		var l: Dictionary = GameData.LEVELS[id]
+		var p: Vector2 = l["pos"]
+		var alpha := 1.0 if Game.can_reach(id) else 0.55
+		var sub := "Reach %d" % l["distance"] if l["playable"] else "Coming soon"
+		var top := p + (Vector2(0, -NODE_R - 54) if GameData.label_above(id) else Vector2(0, NODE_R + 4))
+		_text(top + Vector2(0, 22), l["name"], 20, Color(UI.INK, maxf(alpha, 0.8)), true, true)
+		_text(top + Vector2(0, 44), sub, 17, UI.MUTED, false, true)
+
+
+# Dungeons: a cave mouth on a patch of its element's colour, faded until the roots reach it.
+func _draw_dungeons() -> void:
+	for d in Game.state["dungeons"]:
+		var p := Vector2(d["x"], d["y"])
+		var id := Game.dungeon_id(d)
+		var alpha := 1.0 if d["distance"] <= Game.reach() else 0.55
+		draw_circle(p, DUNGEON_R + 8, Color(GameData.BIOME_COLORS[d["element"]], 0.35 * alpha))
+		draw_circle(p, DUNGEON_R, Color(UI.BARK_DARK, alpha))
+		var ring: Color = UI.ROOT_GLOW if id == selected else GameData.BIOME_COLORS[d["element"]]
+		draw_arc(p, DUNGEON_R, 0, TAU, 40, Color(ring, alpha), 5 if id == selected else 3, true)
+		draw_texture_rect(UI.tex("dungeon"), Rect2(p - Vector2(26, 26), Vector2(52, 52)), false, Color(1, 1, 1, alpha))
+		draw_texture_rect(UI.tex("icon_" + d["element"]), Rect2(p + Vector2(14, -34), Vector2(22, 22)), false, Color(1, 1, 1, alpha))
+		_text(p + Vector2(0, DUNGEON_R + 24), GameData.DUNGEON_NAMES[d["element"]], 18, Color(UI.INK, maxf(alpha, 0.8)), true)
+		_text(p + Vector2(0, DUNGEON_R + 44), "Dungeon · Reach %d" % d["distance"], 16, UI.MUTED)

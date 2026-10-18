@@ -62,11 +62,15 @@ func _ready() -> void:
 	col.add_child(UI.panel(tree_box))
 
 	# Growth.
-	var need := GameData.xp_to_next(tree["level"])
+	var need := Game.growth_needed()
+	var maxed: bool = tree["level"] >= GameData.MAX_LEVEL
 	var g := UI.vbox(10)
 	var title := UI.hbox(8)
 	title.add_child(UI.label(_stage_name(tree["level"]), "Title"))
 	title.add_child(UI.label("· Level %d" % tree["level"], "Muted"))
+	if tree["prestige"] > 0:
+		title.add_child(UI.spacer())
+		title.add_child(UI.label("Prestige %d · ×%.1f" % [tree["prestige"], Game.prestige_mult()], "Muted"))
 	g.add_child(title)
 	var bar := ProgressBar.new()
 	bar.max_value = need
@@ -74,9 +78,13 @@ func _ready() -> void:
 	bar.custom_minimum_size.y = 18
 	bar.show_percentage = false
 	g.add_child(bar)
-	g.add_child(UI.label("%d / %d sunlight. Channel sunlight or win battles to grow. Each tree part can be upgraded up to the tree's level."
-		% [tree["xp"], need], "Small", true))
-	var ch_max := UI.button("Channel to next level", Game.channel.bind(-1))
+	if maxed:
+		g.add_child(UI.label("%d / %d sunlight. The tree is fully grown. Prestige to return it to level 0 with +%d%% growth, sunlight and sap production and troop HP and damage."
+			% [tree["xp"], need, roundi(GameData.PRESTIGE_BONUS * 100)], "Small", true))
+	else:
+		g.add_child(UI.label("%d / %d sunlight. Channel sunlight or win battles to grow. Each tree part can be upgraded up to the tree's level."
+			% [tree["xp"], need], "Small", true))
+	var ch_max := UI.button("Prestige" if maxed else "Channel to next level", Game.channel.bind(-1))
 	ch_max.size_flags_horizontal = SIZE_EXPAND_FILL
 	g.add_child(ch_max)
 	var r := Game.rates()
@@ -139,7 +147,9 @@ func _part_card(part: String) -> Control:
 	up.disabled = not check["ok"]
 	row.add_child(up)
 	box.add_child(row)
-	if lvl >= s["tree"]["level"]:
+	if lvl >= GameData.MAX_LEVEL:
+		box.add_child(UI.label("Fully grown.", "Hint"))
+	elif lvl >= s["tree"]["level"]:
 		box.add_child(UI.label("Needs tree level %d." % (lvl + 1), "Hint"))
 	return UI.panel(box)
 

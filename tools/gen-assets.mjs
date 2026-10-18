@@ -441,7 +441,110 @@ const assets = {
   <path d="M22 45 L29 47" stroke="#C9A6FF" stroke-width="3" stroke-linecap="round"/>
   <path d="M20 37 L22 24 L28 32 L32 20 L36 32 L42 24 L42 38 Z" fill="#B58BE0" ${o()}/>
   <circle cx="32" cy="30" r="2.2" fill="#FFD447"/>`),
+
+  // --- Brambleheart Thicket (nature) ----------------------------------------
+  enemy_thornback_boar: svg(64, 64, `
+  <path d="M22 50 L20 59 M30 51 L30 59 M42 51 L42 59 M50 49 L52 58" ${o(4)}/>
+  <ellipse cx="38" cy="40" rx="20" ry="13" fill="#7A5236" ${o()}/>
+  <path d="M24 30 L26 22 L30 29 L34 20 L37 28 L42 19 L44 28 L50 22 L50 31" fill="#3F7A2E" ${o()}/>
+  <path d="M30 26 L29 22 M42 24 L42 19" stroke="#C94A3A" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M58 36 C62 34 63 30 61 28" fill="none" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>
+  <path d="M6 42 C6 32 12 28 22 30 L26 46 C18 50 8 50 6 42 Z" fill="#8A6044" ${o()}/>
+  <ellipse cx="8" cy="43" rx="4" ry="5" fill="#C98B74" ${o()}/>
+  <circle cx="7" cy="42" r="1" fill="${INK}"/><circle cx="9.5" cy="44" r="1" fill="${INK}"/>
+  <path d="M12 48 C10 52 12 54 15 53" fill="#F2E8D2" ${o(1.5)}/>
+  <circle cx="17" cy="36" r="2" fill="#E0322B"/>
+  <path d="M14 32 L20 34" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`),
+
+  enemy_pollen_wisp: svg(64, 64, `
+  ${sparkle(10, 14, 3, '#FFE27A')}${sparkle(54, 46, 2.5, '#FFE27A')}${sparkle(52, 12, 2, '#C8E86B')}
+  ${petals(32, 32, 6, 14, 5, '#C8E86B', 30)}
+  <circle cx="32" cy="32" r="12" fill="#FFD447" ${o()}/>
+  <path d="M25 30 C25 26 27 24 30 23" fill="none" stroke="#FFF4C2" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="28" cy="33" r="2" fill="${INK}"/><circle cx="36" cy="33" r="2" fill="${INK}"/>
+  <path d="M29 38 C31 40 33 40 35 38" fill="none" stroke="${INK}" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="20" cy="56" r="2" fill="#FFE27A"/><circle cx="27" cy="60" r="1.4" fill="#FFE27A"/>`),
+
+  enemy_blight_treant: svg(96, 96, `
+  <path d="M30 88 C34 80 36 76 38 70 M66 88 C62 80 60 76 58 70 M20 90 L38 86 M58 86 L78 90" fill="none" stroke="${INK}" stroke-width="7" stroke-linecap="round"/>
+  <path d="M30 88 C34 80 36 76 38 70 M66 88 C62 80 60 76 58 70 M20 90 L38 86 M58 86 L78 90" fill="none" stroke="#5A4232" stroke-width="4" stroke-linecap="round"/>
+  <path d="M34 74 C30 60 30 44 36 34 L60 34 C66 44 66 60 62 74 Z" fill="#6B4E3A" ${o()}/>
+  <path d="M40 44 L42 66 M54 40 L52 60 M47 62 L48 72" stroke="#4A3526" stroke-width="2" stroke-linecap="round"/>
+  <path d="M36 50 C26 46 18 38 12 26 M12 26 L6 22 M12 26 L10 18 M60 48 C70 44 78 36 84 24 M84 24 L90 20 M84 24 L86 16" fill="none" stroke="${INK}" stroke-width="6" stroke-linecap="round"/>
+  <path d="M36 50 C26 46 18 38 12 26 M12 26 L6 22 M12 26 L10 18 M60 48 C70 44 78 36 84 24 M84 24 L90 20 M84 24 L86 16" fill="none" stroke="#6B4E3A" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M22 30 C16 16 30 4 48 6 C66 4 80 16 74 30 C66 36 58 32 48 34 C38 32 30 36 22 30 Z" fill="#5E6B2E" ${o()}/>
+  <path d="M30 22 C34 16 40 14 46 14" fill="none" stroke="#8C9A48" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="34" cy="26" r="3" fill="#9B5FC0"/><circle cx="60" cy="20" r="2.5" fill="#9B5FC0"/><circle cx="66" cy="28" r="2" fill="#9B5FC0"/>
+  <path d="M38 44 L44 46 M58 44 L52 46" stroke="${INK}" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="42" cy="49" r="2.8" fill="#C8E86B"/><circle cx="54" cy="49" r="2.8" fill="#C8E86B"/>
+  <path d="M42 58 L45 56 L48 59 L51 56 L54 58" fill="none" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/>`),
+
+  // --- Sunken Lagoon (water) ------------------------------------------------
+  enemy_snapjaw_crab: svg(64, 64, `
+  <path d="M18 44 L8 52 M20 48 L12 58 M46 44 L56 52 M44 48 L52 58" ${o(3)}/>
+  <path d="M18 34 L12 24 M46 34 L52 24" ${o(4)}/>
+  <path d="M4 18 C4 10 12 8 16 12 L12 18 L18 18 C18 24 8 26 4 18 Z" fill="#E0573A" ${o()}/>
+  <path d="M60 18 C60 10 52 8 48 12 L52 18 L46 18 C46 24 56 26 60 18 Z" fill="#E0573A" ${o()}/>
+  <ellipse cx="32" cy="40" rx="18" ry="12" fill="#C8432A" ${o()}/>
+  <path d="M20 38 C24 32 40 32 44 38" fill="none" stroke="#F08A62" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M27 30 L26 24 M37 30 L38 24" stroke="${INK}" stroke-width="2"/>
+  <circle cx="26" cy="23" r="3" fill="#FFFFFF" ${o(1.5)}/><circle cx="38" cy="23" r="3" fill="#FFFFFF" ${o(1.5)}/>
+  <circle cx="26" cy="23" r="1.3" fill="${INK}"/><circle cx="38" cy="23" r="1.3" fill="${INK}"/>
+  <path d="M28 45 L30 43 L32 45 L34 43 L36 45" fill="none" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/>`),
+
+  enemy_bubble_eel: svg(64, 64, `
+  <path d="M14 56 C4 48 10 36 22 38 C34 40 40 30 34 22" fill="none" stroke="${INK}" stroke-width="13" stroke-linecap="round"/>
+  <path d="M14 56 C4 48 10 36 22 38 C34 40 40 30 34 22" fill="none" stroke="#3A8C9E" stroke-width="9" stroke-linecap="round"/>
+  <path d="M12 50 C9 46 12 42 18 42" fill="none" stroke="#9FE0E8" stroke-width="2" stroke-linecap="round"/>
+  <path d="M10 40 L4 36 L8 44 Z" fill="#2E6F7E" ${o(1.5)}/>
+  <ellipse cx="38" cy="18" rx="10" ry="8" fill="#3A8C9E" ${o()}/>
+  <path d="M30 10 L34 4 L38 10 L42 5 L44 12" fill="#2E6F7E" ${o(1.5)}/>
+  <circle cx="40" cy="16" r="2.4" fill="#FFD84A"/><circle cx="40" cy="16" r="1" fill="${INK}"/>
+  <path d="M44 22 C46 23 47 22 47 20" fill="none" stroke="${INK}" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="52" cy="14" r="4" fill="#D8F1FF" fill-opacity="0.8" stroke="#5BB4E8" stroke-width="1.5"/>
+  <circle cx="57" cy="5" r="2.5" fill="#D8F1FF" fill-opacity="0.8" stroke="#5BB4E8" stroke-width="1.5"/>`),
+
+  enemy_lagoon_kraken: svg(96, 96, `
+  <path d="M26 64 C14 70 10 82 18 88 M38 70 C32 80 34 88 40 90 M58 70 C64 80 62 88 56 90 M70 64 C82 70 86 82 78 88" fill="none" stroke="${INK}" stroke-width="10" stroke-linecap="round"/>
+  <path d="M26 64 C14 70 10 82 18 88 M38 70 C32 80 34 88 40 90 M58 70 C64 80 62 88 56 90 M70 64 C82 70 86 82 78 88" fill="none" stroke="#2F6FA8" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="16" cy="78" r="1.6" fill="#BDE3FA"/><circle cx="35" cy="82" r="1.6" fill="#BDE3FA"/><circle cx="61" cy="82" r="1.6" fill="#BDE3FA"/><circle cx="80" cy="78" r="1.6" fill="#BDE3FA"/>
+  <path d="M18 60 C14 30 30 8 48 8 C66 8 82 30 78 60 C70 70 26 70 18 60 Z" fill="#3A7FC0" ${o()}/>
+  <path d="M28 40 C28 26 36 18 46 16" fill="none" stroke="#9FD3F5" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="60" cy="24" r="4" fill="#5BB4E8"/><circle cx="68" cy="36" r="3" fill="#5BB4E8"/><circle cx="34" cy="20" r="2.5" fill="#5BB4E8"/>
+  <path d="M30 42 L42 46 M66 42 L54 46" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
+  <ellipse cx="38" cy="51" rx="5" ry="6" fill="#FFD84A" ${o(1.5)}/><ellipse cx="58" cy="51" rx="5" ry="6" fill="#FFD84A" ${o(1.5)}/>
+  <rect x="37" y="48" width="2" height="7" rx="1" fill="${INK}"/><rect x="57" y="48" width="2" height="7" rx="1" fill="${INK}"/>
+  <path d="M44 62 C46 60 50 60 52 62" fill="none" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`),
+
+  // --- Dungeons -------------------------------------------------------------
+  // A mossy stone arch over a dark cave mouth, with eyes peering out.
+  dungeon: svg(64, 64, `
+  <path d="M4 58 C4 30 16 10 32 10 C48 10 60 30 60 58 Z" fill="#8A8478" ${o()}/>
+  <path d="M10 26 L18 28 M8 40 L16 40 M48 28 L55 25 M48 40 L56 41 M24 14 L26 20 M40 14 L38 20" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M14 58 C14 38 22 24 32 24 C42 24 50 38 50 58 Z" fill="#1E1630" ${o()}/>
+  <path d="M18 58 C18 42 24 30 32 30 C40 30 46 42 46 58 Z" fill="#120C1E"/>
+  <ellipse cx="27" cy="44" rx="2.6" ry="2" fill="#FFD447"/><ellipse cx="37" cy="44" rx="2.6" ry="2" fill="#FFD447"/>
+  <circle cx="27" cy="44" r="0.9" fill="${INK}"/><circle cx="37" cy="44" r="0.9" fill="${INK}"/>
+  <path d="M8 22 C12 14 18 12 22 14 C18 16 14 20 12 26 Z" fill="#5DBB4C" ${o(1.5)}/>
+  <path d="M44 13 C50 13 55 18 56 24 C52 21 48 19 44 19 Z" fill="#5DBB4C" ${o(1.5)}/>
+  <rect x="2" y="56" width="60" height="5" rx="2.5" fill="#6E6A60" ${o()}/>
+  <circle cx="12" cy="56" r="4" fill="#A39C8E" ${o(1.5)}/><circle cx="53" cy="55" r="3" fill="#A39C8E" ${o(1.5)}/>`),
 };
+
+// --- Wild twigs -------------------------------------------------------------
+// Rival twig troops that guard the two-element lands: the player's elemental
+// troops in weathered grey bark, with red eyes and a scowl.
+const WILD_BARK = { '#9C6B3C': '#6B5A4C', '#B07D48': '#857060', '#8B5A2B': '#5C4A3C', '#6E4724': '#463830' };
+const wild = (troop, x) => {
+  let s = assets[troop];
+  for (const [from, to] of Object.entries(WILD_BARK)) s = s.replaceAll(from, to);
+  s = s.replaceAll(`cy="18" r="1.6" fill="${INK}"`, `cy="18.5" r="1.8" fill="#E0322B"`);
+  const brow = `<path d="M${x - 6} 14 L${x - 1.5} 16 M${x + 6} 14 L${x + 1.5} 16" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`;
+  return s.replace('</svg>', `${brow}</svg>`);
+};
+for (const [troop, x] of [['vine_lasher', 28], ['tide_caller', 28], ['ember_sprout', 28], ['frost_warden', 32], ['shade_twig', 30]]) {
+  assets[`enemy_wild_${troop}`] = wild(`troop_${troop}`, x);
+}
 
 for (const [name, content] of Object.entries(assets)) {
   for (const dir of outDirs) writeFileSync(join(dir, `${name}.svg`), content);

@@ -12,7 +12,7 @@ const TABS := [["grove", "Grove"], ["garden", "Garden"], ["barracks", "Barracks"
 
 var tab := "grove"
 ## Screen state that survives redraws.
-## selected_level is a land id, or "grove" for the Home Grove (expeditions).
+## selected_level is a land id, a dungeon id ("dungeon_<n>"), or "grove" for the Home Grove (expeditions).
 var ui := {"selected_plot": -1, "selected_troop": -1, "selected_level": "sunny_meadow"}
 
 var _content: Control
@@ -133,6 +133,7 @@ func _refresh_resources() -> void:
 		for c in box.get_children():
 			c.queue_free()
 	var s: Dictionary = Game.state
+	_nav["garden"].modulate.a = 1.0 if Game.garden_unlocked() else 0.4
 	_resources.add_child(UI.panel(UI.label("Lv %d" % s["tree"]["level"], "Heading"), "LevelChip"))
 	var sun := _chip("icon_sunlight", s["resources"]["sunlight"])
 	var sap := _chip("icon_sap", s["resources"]["sap"])
@@ -147,6 +148,9 @@ func _refresh_resources() -> void:
 
 
 func switch_tab(id: String) -> void:
+	if id == "garden" and not Game.garden_unlocked():
+		Game.toast.emit("The garden opens after the tree's first prestige.", false)
+		return
 	tab = id
 	for k in _nav:
 		_nav[k].theme_type_variation = "NavButtonActive" if k == id else "NavButton"
@@ -238,7 +242,16 @@ func start_battle(level_id: String) -> void:
 	if not check["ok"]:
 		show_toast(check["msg"], false)
 		return
-	_open_battle(BattleSim.new(level_id, Game.formation_troops(), false, Game.take_queued_potions()))
+	_open_battle(BattleSim.new(level_id, Game.formation_troops(), false, Game.take_queued_potions(), Game.prestige_mult()))
+
+
+func start_dungeon(id: String) -> void:
+	var check := Game.can_enter_dungeon(id)
+	if not check["ok"]:
+		show_toast(check["msg"], false)
+		return
+	_open_battle(BattleSim.new(id, Game.formation_troops(), false, Game.take_queued_potions(), Game.prestige_mult(),
+		Game.dungeon_level(Game.dungeon(id))))
 
 
 ## Sends the formation out from the Home Grove on an endless expedition.
@@ -247,7 +260,7 @@ func start_expedition() -> void:
 	if not check["ok"]:
 		show_toast(check["msg"], false)
 		return
-	_open_battle(BattleSim.new_expedition(Game.formation_troops(), Game.take_queued_potions()))
+	_open_battle(BattleSim.new_expedition(Game.formation_troops(), Game.take_queued_potions(), Game.prestige_mult()))
 
 
 func _open_battle(sim: BattleSim) -> void:

@@ -47,6 +47,10 @@ func _ready() -> void:
 	var head := UI.hbox(10)
 	_element_icon = UI.icon("icon_" + sim.element(), 34)
 	head.add_child(_element_icon)
+	# A land shows all of its elements; an expedition's icon follows its waves.
+	if not sim.expedition:
+		for el in sim.level["elements"].slice(1):
+			head.add_child(UI.icon("icon_" + el, 34))
 	_title = UI.label(sim.level.get("name", ""), "Title")
 	head.add_child(_title)
 	head.add_child(UI.spacer())
@@ -87,7 +91,7 @@ func _process(_delta: float) -> void:
 	if sim.expedition:
 		_title.text = "Expedition · %s foes" % el.capitalize()
 		_element_icon.texture = UI.tex("icon_" + el)
-	_skip.visible = Game.level_state(GameData.land_of(el))["conquered"]
+	_skip.visible = Game.level_state(GameData.land_of(el) if sim.expedition else sim.level_id)["conquered"]
 	if sim.seen.size() != _seen_count:
 		_seen_count = sim.seen.size()
 		Game.mark_enemies_seen(sim.seen.keys())
@@ -241,6 +245,9 @@ func _show_result() -> void:
 	if sim.expedition:
 		_show_expedition_result()
 		return
+	if sim.dungeon:
+		_show_dungeon_result()
+		return
 	var res := Game.apply_battle_result(sim)
 	sim.dispose()
 	_controls.hide()
@@ -252,7 +259,7 @@ func _show_result() -> void:
 	t.add_theme_font_size_override("font_size", 38)
 	box.add_child(t)
 	if res["first_clear"]:
-		var c := UI.label("%s is conquered! It now yields %d %s power per day." % [sim.level["name"], sim.level["daily_yield"], sim.level["element"]], "Heading", true)
+		var c := UI.label("%s is conquered! It now yields %d %s power per day." % [sim.level["name"], sim.level["daily_yield"], GameData.elements_text(sim.level_id)], "Heading", true)
 		c.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		c.add_theme_color_override("font_color", UI.ACCENT)
 		box.add_child(c)
@@ -267,9 +274,48 @@ func _show_result() -> void:
 	if res["power"] > 0:
 		var pw := UI.hbox(6)
 		pw.add_child(UI.label("+%d" % res["power"]))
-		pw.add_child(UI.icon("icon_" + res["element"], 26))
-		pw.add_child(UI.label("%s power%s" % [res["element"], " (a full day's yield)" if res["first_clear"] else " (3 hours' yield)"]))
+		for el in res["elements"]:
+			pw.add_child(UI.icon("icon_" + el, 26))
+		pw.add_child(UI.label("%s power%s" % [GameData.elements_text(sim.level_id), " (a full day's yield)" if res["first_clear"] else " (3 hours' yield)"], "", true))
 		box.add_child(pw)
+	box.add_child(UI.label("Waves cleared: %d / %d" % [sim.waves_cleared, sim.level["waves"].size()]))
+	if res["lost"] > 0:
+		var lost := UI.label("%d troop%s fell and %s lost for good." % [res["lost"], "" if res["lost"] == 1 else "s", "is" if res["lost"] == 1 else "are"], "Heading", true)
+		lost.add_theme_color_override("font_color", UI.DANGER)
+		box.add_child(lost)
+	else:
+		box.add_child(UI.label("No troops lost."))
+	box.add_child(UI.button("Return to map", main.close_battle, "PrimaryButton"))
+	_centered(UI.panel(box, "Result"))
+
+
+func _show_dungeon_result() -> void:
+	var res := Game.apply_dungeon_result(sim)
+	sim.dispose()
+	_controls.hide()
+
+	var box := UI.vbox(12)
+	var title := "Dungeon cleared!" if res["won"] else ("Retreated" if sim.retreated else "Defeat")
+	var t := UI.label(title, "Title")
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.add_theme_font_size_override("font_size", 38)
+	box.add_child(t)
+	if res["won"]:
+		box.add_child(UI.label("The %s crumbles. A new dungeon will appear in %d minutes." % [sim.level["name"], GameData.DUNGEON_RESPAWN_MINUTES], "", true))
+		for id in GameData.ITEM_ORDER:
+			if res["items"].get(id, 0) > 0:
+				var row := UI.hbox(8)
+				row.add_child(UI.icon(GameData.ITEMS[id]["img"], 32))
+				row.add_child(UI.label("%d× %s" % [res["items"][id], GameData.ITEMS[id]["name"]]))
+				box.add_child(row)
+		for id in GameData.SEED_ORDER:
+			if res["seeds"].get(id, 0) > 0:
+				var row := UI.hbox(8)
+				row.add_child(UI.icon(GameData.SEEDS[id]["img"], 32))
+				row.add_child(UI.label("%d× %s (plant it in the Garden)" % [res["seeds"][id], GameData.SEEDS[id]["name"]]))
+				box.add_child(row)
+	else:
+		box.add_child(UI.label("The dungeon still stands. Try again with a stronger squad.", "", true))
 	box.add_child(UI.label("Waves cleared: %d / %d" % [sim.waves_cleared, sim.level["waves"].size()]))
 	if res["lost"] > 0:
 		var lost := UI.label("%d troop%s fell and %s lost for good." % [res["lost"], "" if res["lost"] == 1 else "s", "is" if res["lost"] == 1 else "are"], "Heading", true)
