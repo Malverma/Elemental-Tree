@@ -20,6 +20,9 @@ const GRASS := Color("#7CC46A")
 const ROOT_GLOW := Color("#FFD447")
 const MAP_BG := Color("#EDE3C8")
 const NIGHT := Color("#14231A")  # dark backing for text and pills over the pixel scenes
+const SHEET_INK := Color("#F3EEDF")  # text on the dark pull-up sheet
+const SHEET_MUTED := Color("#B5BFA8")
+const SHEET_HINT := Color("#FFB3A8")
 
 const RES_ICON := {"sunlight": "icon_sunlight", "sap": "icon_sap"}
 
@@ -27,10 +30,10 @@ static var _textures := {}
 static var _bold: Font
 
 
-## Pixel art (assets/pixel/*.png) wins over the older vector art of the same name.
+## Art by name, from assets/pixel/*.png.
 static func tex(name: String) -> Texture2D:
 	if not _textures.has(name):
-		_textures[name] = load(("res://assets/pixel/%s.png" if is_pixel(name) else "res://assets/%s.svg") % name)
+		_textures[name] = load("res://assets/pixel/%s.png" % name)
 	return _textures[name]
 
 
@@ -123,16 +126,13 @@ static func build_theme() -> Theme:
 	# Floating pills over the pixel scenes, and the pull-up sheet.
 	t.set_type_variation("Pill", "PanelContainer")
 	t.set_stylebox("panel", "Pill", _box(Color(NIGHT, 0.72), Color(1, 1, 1, 0.18), 2, 26, 18, 8))
-	var sheet := _box(PANEL, INK, 4, 0, 0, 0)
-	sheet.border_width_bottom = 0
-	sheet.corner_radius_top_left = 30
-	sheet.corner_radius_top_right = 30
-	t.set_type_variation("Sheet", "PanelContainer")
-	t.set_stylebox("panel", "Sheet", sheet)
 	t.set_type_variation("Chip", "PanelContainer")
 	t.set_stylebox("panel", "Chip", _box(Color(1, 1, 1, 0.15), Color.TRANSPARENT, 0, 30, 12, 4))
-	t.set_type_variation("LevelChip", "PanelContainer")
-	t.set_stylebox("panel", "LevelChip", _box(ROOT_GLOW, Color.TRANSPARENT, 0, 30, 14, 4))
+	# Top-bar buttons, in the same translucent bubble as the counters.
+	t.set_type_variation("ChipButton", "Button")
+	for state in ["normal", "hover", "pressed"]:
+		t.set_stylebox(state, "ChipButton", _box(Color(1, 1, 1, 0.28 if state == "pressed" else 0.15), Color.TRANSPARENT, 0, 30, 14, 13))
+	t.set_stylebox("focus", "ChipButton", StyleBoxEmpty.new())
 	t.set_type_variation("Toast", "PanelContainer")
 	t.set_stylebox("panel", "Toast", _box(INK, INK, 0, 14, 20, 12))
 	t.set_type_variation("ToastBad", "PanelContainer")
@@ -180,6 +180,35 @@ static func build_theme() -> Theme:
 	t.set_stylebox("fill", "ProgressBar", bar_fill)
 	t.set_font_size("font_size", "ProgressBar", 1)
 	t.set_color("font_color", "ProgressBar", Color.TRANSPARENT)
+	return t
+
+
+## The pull-up sheet's and pop-outs' own theme: the same dark, softly bordered boxes and
+## light text as the overlays on the pixel scenes. Only what differs from the
+## main theme is set here; everything else falls through to it.
+static func build_sheet_theme() -> Theme:
+	var t := Theme.new()
+	var sheet := _box(Color(NIGHT, 0.95), Color(1, 1, 1, 0.18), 2, 0, 0, 0)
+	sheet.border_width_bottom = 0
+	sheet.corner_radius_top_left = 30
+	sheet.corner_radius_top_right = 30
+	t.set_type_variation("Sheet", "PanelContainer")
+	t.set_stylebox("panel", "Sheet", sheet)
+	t.set_type_variation("PopCard", "PanelContainer")
+	t.set_stylebox("panel", "PopCard", _box(Color(NIGHT, 0.97), Color(1, 1, 1, 0.22), 2, 24, 22, 20))
+	t.set_stylebox("panel", "PanelContainer", _box(Color(1, 1, 1, 0.06), Color(1, 1, 1, 0.16), 2, 14, 18, 16))
+	t.set_type_variation("Card", "PanelContainer")
+	t.set_stylebox("panel", "Card", _box(Color(1, 1, 1, 0.08), Color(1, 1, 1, 0.16), 2, 14, 12, 10))
+	t.set_color("font_color", "Label", SHEET_INK)
+	for v in ["Title", "Heading"]:
+		t.set_type_variation(v, "Label")
+		t.set_color("font_color", v, Color.WHITE)
+	for v in ["Muted", "Small"]:
+		t.set_type_variation(v, "Label")
+		t.set_color("font_color", v, SHEET_MUTED)
+	t.set_type_variation("Hint", "Label")
+	t.set_color("font_color", "Hint", SHEET_HINT)
+	t.set_stylebox("background", "ProgressBar", _box(Color(1, 1, 1, 0.12), Color.TRANSPARENT, 0, 10, 0, 0))
 	return t
 
 

@@ -9,12 +9,21 @@ const GardenView := preload("res://scripts/ui/garden_view.gd")
 const MapView := preload("res://scripts/ui/map_view.gd")
 const BattleView := preload("res://scripts/ui/battle_view.gd")
 const InventoryPanel := preload("res://scripts/ui/inventory_panel.gd")
+const InfoPopup := preload("res://scripts/ui/info_popup.gd")
 
-const TABS := [["grove", "Grove"], ["garden", "Garden"], ["barracks", "Barracks"], ["map", "World Map"]]
+const TABS := [["grove", "Grove"], ["map", "World Map"], ["barracks", "Barracks"], ["garden", "Garden"]]
 ## How far (screen px) a drag must travel to count as a swipe, and how much it
 ## must favour that direction over the other.
 const SWIPE_MIN := 90.0
 const SWIPE_BIAS := 1.3
+## Sideways drags past this (screen px) pick up the screen, which then follows
+## the finger with its neighbour alongside. Let go past DRAG_COMMIT of the
+## width, or with a flick faster than DRAG_FLICK (px/s), to move over.
+const DRAG_START := 24.0
+const DRAG_COMMIT := 0.25
+const DRAG_FLICK := 700.0
+const DRAG_EDGE := 0.3  # how far the screen gives when there's no neighbour that way
+const SLIDE_TIME := 0.28
 const SHEET_HEIGHT := 0.8  # share of the screen the pull-up sheet covers
 
 var tab := "grove"
@@ -40,6 +49,12 @@ var _sheet_open := false
 var _swipe_start := Vector2.INF
 var _swipe_blocked := false
 var _swipe_sheet_scroll := 0
+var _swipe_scrolls := Vector2i.ZERO  # axes a list under the press scrolls along
+var _dragging := false  # a sideways drag is carrying the screen
+var _drag_dir := 0  # which side the neighbour being dragged in sits on (-1 left, 1 right)
+var _drag_next: Control
+var _drag_next_tab := ""
+var _drag_vx := 0.0
 var _toasts: VBoxContainer
 var _overlay: Control
 var _battle: Control
@@ -107,24 +122,26 @@ func _ready() -> void:
 
 func _build_top_bar() -> Control:
 	var col := UI.vbox(8)
-	var row := UI.hbox(10)
+	var row := UI.hbox(8)
 	_resources = UI.hbox(8)
 	row.add_child(_resources)
 	row.add_child(UI.spacer())
-	# Debug builds (like the test APK) get a time warp and reset for testing.
-	if OS.is_debug_build():
-		var warp := UI.button("+1h", func() -> void:
-			Game.advance(60)
-			Game.changed.emit())
-		warp.add_theme_font_size_override("font_size", 18)
-		row.add_child(warp)
-		var reset := UI.button("Reset", _confirm_reset, "DangerButton")
-		reset.add_theme_font_size_override("font_size", 18)
-		row.add_child(reset)
+	row.add_child(_icon_button("icon_inventory", open_inventory))
+	row.add_child(_icon_button("icon_menu", open_menu))
 	col.add_child(row)
 	_powers = UI.hbox(6)
 	col.add_child(_powers)
 	return UI.panel(col, "TopBar")
+
+
+# A round pixel-icon button in the same bubble as the counters beside it.
+func _icon_button(icon_name: String, on_press: Callable) -> Button:
+	var b := UI.button("", on_press, "ChipButton")
+	b.icon = UI.crisp(icon_name)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.expand_icon = true
+	b.custom_minimum_size = Vector2(58, 58)
+	return b
 
 
 # The pull-up handle and the row of screen names along the bottom.
@@ -177,6 +194,7 @@ func _build_sheet() -> Control:
 	_sheet_layer.add_child(dim)
 	_sheet = PanelContainer.new()
 	_sheet.theme_type_variation = "Sheet"
+	_sheet.theme = UI.build_sheet_theme()
 	_sheet.anchor_left = 0.0
 	_sheet.anchor_right = 1.0
 	_sheet.anchor_top = 1.0
@@ -185,7 +203,7 @@ func _build_sheet() -> Control:
 	var col := UI.vbox(6)
 	_sheet.add_child(col)
 	var grab := ColorRect.new()
-	grab.color = UI.LINE
+	grab.color = Color(1, 1, 1, 0.3)
 	grab.custom_minimum_size = Vector2(90, 8)
 	grab.size_flags_horizontal = SIZE_SHRINK_CENTER
 	var grab_pad := MarginContainer.new()
@@ -237,7 +255,7 @@ func _refresh_resources() -> void:
 		for c in box.get_children():
 			c.queue_free()
 	var s: Dictionary = Game.state
-	_resources.add_child(UI.panel(UI.label("Lv %d" % s["tree"]["level"], "Heading"), "LevelChip"))
+	_resources.add_child(UI.panel(UI.label("Lv %d" % s["tree"]["level"], "OnDarkBold"), "Chip"))
 	var sun := _chip("icon_sunlight", s["resources"]["sunlight"])
 	var sap := _chip("icon_sap", s["resources"]["sap"])
 	_sun_label = _chip_label(sun)
@@ -259,7 +277,10 @@ func _refresh_pages() -> void:
 		l.modulate.a = 1.0 if k == tab else 0.7
 		l.visible = k != "garden" or Game.garden_unlocked()
 	var has_sheet := _view != null and _view.has_method("build_sheet")
-	_handle.visible = has_sheet and not _sheet_open
+	var show_handle := has_sheet and not _sheet_open
+	if _handle.visible != show_handle:
+		_handle.visible = show_handle
+		_bottom.offset_top = _bottom.offset_bottom  # regrow to fit, then re-inset the screen
 	if has_sheet:
 		_handle.text = _view.sheet_title()
 
@@ -282,8 +303,8 @@ func switch_tab(id: String, dir := 0) -> void:
 	var w := size.x
 	_view.position.x = w * dir
 	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_view, "position:x", 0.0, 0.28)
-	tw.tween_property(old, "position:x", -w * dir, 0.28)
+	tw.tween_property(_view, "position:x", 0.0, SLIDE_TIME)
+	tw.tween_property(old, "position:x", -w * dir, SLIDE_TIME)
 	tw.chain().tween_callback(old.queue_free)
 
 
@@ -295,13 +316,18 @@ func _on_page_pressed(id: String) -> void:
 
 ## Moves one screen left (-1) or right (+1); a locked garden isn't there yet.
 func step_tab(dir: int) -> void:
+	var id := _neighbor(dir)
+	if id != "":
+		switch_tab(id, dir)
+
+
+## The screen beside the current one (-1 left, 1 right), or "" at the end of the row.
+func _neighbor(dir: int) -> String:
 	var ids := TABS.map(func(t): return t[0])
 	if not Game.garden_unlocked():
 		ids.erase("garden")
 	var i: int = ids.find(tab) + dir
-	if i < 0 or i >= ids.size():
-		return
-	switch_tab(ids[i], dir)
+	return ids[i] if i >= 0 and i < ids.size() else ""
 
 
 # Several actions can fire in one frame (e.g. a battle result); redraw once.
@@ -331,36 +357,47 @@ func _rebuild_view(keep_scroll: bool) -> void:
 		if keep_scroll and _view is ScrollContainer:
 			scroll = _view.scroll_vertical
 		_view.queue_free()
-	match tab:
-		"grove":
-			_view = GroveView.new(self)
-		"garden":
-			_view = GardenView.new(self)
-		"barracks":
-			_view = BarracksView.new(self)
-		_:
-			_view = MapView.new(self)
+	_view = _new_view(tab)
 	_view_tab = tab
-	_view.set_anchors_preset(PRESET_FULL_RECT)
-	_content.add_child(_view)
-	_apply_insets()
 	if scroll > 0:
 		await get_tree().process_frame
 		if is_instance_valid(_view):
 			_view.scroll_vertical = scroll
 
 
-# Full-screen scenes get told how much the bars cover; list screens sit between them.
+# Builds screen `id` into the content area, fitted between the bars.
+func _new_view(id: String) -> Control:
+	var v: Control
+	match id:
+		"grove":
+			v = GroveView.new(self)
+		"garden":
+			v = GardenView.new(self)
+		"barracks":
+			v = BarracksView.new(self)
+		_:
+			v = MapView.new(self)
+	v.set_anchors_preset(PRESET_FULL_RECT)
+	_content.add_child(v)
+	_inset(v)
+	return v
+
+
 func _apply_insets() -> void:
-	if not _view or not is_instance_valid(_view):
-		return
+	for v in [_view, _drag_next]:
+		if v and is_instance_valid(v):
+			_inset(v)
+
+
+# Full-screen scenes get told how much the bars cover; list screens sit between them.
+func _inset(v: Control) -> void:
 	var top := _top_bar.size.y
 	var bottom := _bottom.size.y
-	if _view.has_method("apply_insets"):
-		_view.apply_insets(top, bottom)
+	if v.has_method("apply_insets"):
+		v.apply_insets(top, bottom)
 	else:
-		_view.offset_top = top
-		_view.offset_bottom = -bottom
+		v.offset_top = top
+		v.offset_bottom = -bottom
 
 
 ## Opens the current screen's pull-up sheet (Grove upgrades, Garden seeds).
@@ -417,14 +454,87 @@ func _input(event: InputEvent) -> void:
 		if event.pressed:
 			_swipe_start = event.position
 			_swipe_blocked = _battle != null or _modal_open()
+			_swipe_scrolls = _scroll_axes()
 			_swipe_sheet_scroll = _sheet_scroll.scroll_vertical
 		elif _swipe_start != Vector2.INF:
 			var d: Vector2 = event.position - _swipe_start
 			_swipe_start = Vector2.INF
-			if not _swipe_blocked and not get_viewport().gui_is_dragging():
+			if _dragging:
+				# The screen was following the finger; the press isn't a tap underneath.
+				get_viewport().set_input_as_handled()
+				_end_drag(d.x)
+			elif not _swipe_blocked and not get_viewport().gui_is_dragging():
 				_on_swipe(d)
-	elif event is InputEventMouseMotion and _swipe_start != Vector2.INF and get_viewport().gui_is_dragging():
-		_swipe_blocked = true
+	elif event is InputEventMouseMotion and _swipe_start != Vector2.INF:
+		if get_viewport().gui_is_dragging():
+			_swipe_blocked = true
+			return
+		var d: Vector2 = event.position - _swipe_start
+		if not _dragging and not _swipe_blocked and not _sheet_open and not _swipe_scrolls.x and _view \
+				and absf(d.x) >= DRAG_START and absf(d.x) > absf(d.y) * SWIPE_BIAS:
+			_dragging = true
+		if _dragging:
+			get_viewport().set_input_as_handled()
+			_drag_vx = event.velocity.x
+			_drag_to(d.x)
+
+
+# Carries the screen `dx` px sideways, with the neighbour on that side
+# following alongside (built the first time the drag heads its way).
+func _drag_to(dx: float) -> void:
+	var w := size.x
+	var dir := -signi(int(signf(dx))) if dx != 0.0 else _drag_dir
+	if dir != _drag_dir:
+		_drop_drag_next()
+		_drag_dir = dir
+		var id := _neighbor(dir)
+		if id != "":
+			_drag_next_tab = id
+			_drag_next = _new_view(id)
+	if not _drag_next:
+		dx *= DRAG_EDGE  # nothing that way: the screen only gives a little
+	_view.position.x = dx
+	if _drag_next:
+		_drag_next.position.x = dx + w * _drag_dir
+
+
+# Lets go of a sideways drag: moves on to the neighbour if the drag went far
+# or fast enough, otherwise springs back.
+func _end_drag(dx: float) -> void:
+	_dragging = false
+	var w := size.x
+	var flick := absf(_drag_vx) >= DRAG_FLICK and signf(_drag_vx) == signf(dx)
+	var go := _drag_next != null and (absf(dx) >= w * DRAG_COMMIT or flick)
+	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if go:
+		var old := _view
+		_view = _drag_next
+		_drag_next = null
+		tab = _drag_next_tab
+		_view_tab = tab
+		# The rest of the way takes as long as the distance left, so it keeps the finger's pace.
+		var t := clampf(SLIDE_TIME * (1.0 - absf(dx) / w), 0.12, SLIDE_TIME)
+		tw.tween_property(_view, "position:x", 0.0, t)
+		tw.tween_property(old, "position:x", -w * _drag_dir, t)
+		tw.chain().tween_callback(old.queue_free)
+		_drag_dir = 0
+		_refresh_pages()
+		_refresh_resources()
+		return
+	tw.tween_property(_view, "position:x", 0.0, 0.2)
+	if _drag_next:
+		var gone := _drag_next
+		_drag_next = null
+		tw.tween_property(gone, "position:x", w * _drag_dir, 0.2)
+		tw.chain().tween_callback(gone.queue_free)
+	_drag_dir = 0
+
+
+func _drop_drag_next() -> void:
+	if _drag_next:
+		_drag_next.queue_free()
+		_drag_next = null
+	_drag_next_tab = ""
 
 
 func _on_swipe(d: Vector2) -> void:
@@ -435,10 +545,26 @@ func _on_swipe(d: Vector2) -> void:
 		if vertical and d.y > 0 and _swipe_sheet_scroll == 0:
 			close_sheet()
 		return
+	if (horizontal and _swipe_scrolls.x) or (vertical and _swipe_scrolls.y):
+		return  # that drag scrolled a list
 	if horizontal:
 		step_tab(-1 if d.x > 0 else 1)
 	elif vertical and d.y < 0:
 		open_sheet()
+
+
+# A drag along a list that scrolls that way (other than the sheet) moves the
+# list, not the screen.
+func _scroll_axes() -> Vector2i:
+	var axes := Vector2i.ZERO
+	var c: Node = get_viewport().gui_get_hovered_control()
+	while c and c != self:
+		if c is ScrollContainer and c != _sheet_scroll and c.get_child_count() > 0:
+			var inner: Control = c.get_child(0)
+			axes.x |= int(inner.size.x > c.size.x + 1)
+			axes.y |= int(inner.size.y > c.size.y + 1)
+		c = c.get_parent()
+	return axes
 
 
 # Inventory panels and dialogs take the screen; swipes wait until they close.
@@ -523,16 +649,55 @@ func start_expedition() -> void:
 
 
 func _open_battle(sim: BattleSim) -> void:
+	_close_popups()
 	_battle = BattleView.new(self, sim)
 	_battle.set_anchors_preset(PRESET_FULL_RECT)
 	add_child(_battle)
 	move_child(_overlay, -1)
 
 
+## Shows a pop-out (or other modal panel) over the current screen.
+func open_popup(popup: Control) -> void:
+	add_child(popup)
+	move_child(_overlay, -1)
+
+
+func _close_popups() -> void:
+	for c in get_children():
+		if c.has_signal("closed") and c.has_method("close"):
+			c.close()
+
+
 ## Opens the inventory over the current screen (outside of battle).
 func open_inventory() -> void:
-	add_child(InventoryPanel.new())
-	move_child(_overlay, -1)
+	_close_popups()
+	open_popup(InventoryPanel.new())
+
+
+## The menu pop-out. For now it only holds the developer tools.
+func open_menu() -> void:
+	_close_popups()
+	open_popup(InfoPopup.new(_menu_content, 440.0))
+
+
+func _menu_content() -> Control:
+	var col := UI.vbox(14)
+	var head := UI.hbox(10)
+	head.add_child(UI.icon("icon_menu", 36))
+	head.add_child(UI.label("Menu", "Title"))
+	col.add_child(head)
+	# Debug builds (like the test APK) get a time warp and reset for testing.
+	if OS.is_debug_build():
+		col.add_child(UI.label("Developer", "Heading"))
+		col.add_child(UI.button("+1h", func() -> void:
+			Game.advance(60)
+			Game.changed.emit(), "PrimaryButton"))
+		col.add_child(UI.button("Prestige", Game.dev_prestige, "PrimaryButton"))
+		col.add_child(UI.button("Reset", _confirm_reset, "DangerButton"))
+		col.add_child(UI.label("+1h skips an hour of growth. Prestige conquers the lands the tree needs, grows it to level %d and prestiges. Reset deletes the save." % GameData.MAX_LEVEL, "Small", true))
+	else:
+		col.add_child(UI.label("Nothing here yet.", "Muted"))
+	return col
 
 
 func close_battle() -> void:
@@ -545,6 +710,8 @@ func close_battle() -> void:
 func _confirm_reset() -> void:
 	var d := ConfirmationDialog.new()
 	d.dialog_text = "Delete your save and start over?"
-	d.confirmed.connect(Game.reset)
+	d.confirmed.connect(func() -> void:
+		_close_popups()
+		Game.reset())
 	add_child(d)
 	d.popup_centered()

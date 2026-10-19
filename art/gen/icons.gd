@@ -1,8 +1,8 @@
 # Icons sheet (16x16 cells): resources, elements, inventory, potions, and the
-# pull-up chevron. Cell order is ICONS; the chevron (9x6) sits in the last cell.
+# menu bars and pull-up chevron. Cell order is ICONS; the chevron (9x6) sits in the last cell.
 var img: Image
 const ICONS := ["icon_sunlight", "icon_sap", "icon_nature", "icon_water", "icon_fire", "icon_ice", "icon_dark",
-	"icon_inventory", "item_thorn_draught", "item_bark_brew", "item_growth_tonic", "handle_up"]
+	"icon_inventory", "item_thorn_draught", "item_bark_brew", "item_reach_tonic", "icon_menu", "handle_up"]
 
 func px(x, y, c):
 	if x >= 0 and y >= 0 and x < img.get_width() and y < img.get_height():
@@ -197,9 +197,26 @@ func icon(name: String, ox: int):
 			px(ox + 2, 8, Color("#3f7a2a")); px(ox + 11, 10, Color("#3f7a2a")); px(ox + 2, 11, Color("#3f7a2a"))
 		"item_bark_brew":
 			flask(ox, [Color("#a8324a"), Color("#e8556d"), Color("#ffb3c1")], false)
-		"item_growth_tonic":
-			flask(ox, [Color("#3f8f3a"), Color("#7cc46a"), Color("#c8ef8f")], false)
-			px(ox + 12, 4, Color("#ffd447")); px(ox + 13, 3, Color("#fff3a8")); px(ox + 1, 6, Color("#ffd447"))
+		"item_reach_tonic":
+			flask(ox, [Color("#2f6fa8"), Color("#5bb4e8"), Color("#bfe6ff")], true)
+			# A small arrow flying up and out: troops strike from farther away.
+			pattern(ox + 10, 1, [
+				"..AAA",
+				"...AA",
+				"..A.A",
+				".A...",
+				"A....",
+			], {"A": Color("#ffd447")})
+		"icon_menu":
+			# Three rounded bars, white with a dark rim like the chevron, for green buttons.
+			var bar = ".WWWWWWWWWWWW."
+			pattern(ox + 1, 2, [bar, bar.replace(".", "W"), bar, "", "", bar, bar.replace(".", "W"), bar, "", "", bar, bar.replace(".", "W"), bar],
+				{"W": Color.WHITE})
+			for y in [3, 8, 13]:
+				for x in range(3, 14):
+					px(ox + x, y, Color("#e3eadb"))
+			dark_rim(ox)
+			return
 		"handle_up":
 			pattern(ox, 4, [
 				"....W....",
@@ -209,18 +226,22 @@ func icon(name: String, ox: int):
 				"WWW...WWW",
 				"WW.....WW",
 			], {"W": Color.WHITE})
-			var src = img.get_region(Rect2i(ox, 0, 16, 16))
-			for y in 16:
-				for x in 16:
-					if src.get_pixel(x, y).a > 0.5:
-						continue
-					for d in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, -1)]:
-						var q = Vector2i(x, y) + d
-						if q.x >= 0 and q.y >= 0 and q.x < 16 and q.y < 16 and src.get_pixel(q.x, q.y).a > 0.5:
-							px(ox + x, y, Color("#14231a"))
-							break
+			dark_rim(ox)
 			return
 	auto_outline(Rect2i(ox, 0, 16, 16))
+
+# A one-pixel night-green rim around white shapes, so they read on any button.
+func dark_rim(ox):
+	var src = img.get_region(Rect2i(ox, 0, 16, 16))
+	for y in 16:
+		for x in 16:
+			if src.get_pixel(x, y).a > 0.5:
+				continue
+			for d in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, -1)]:
+				var q = Vector2i(x, y) + d
+				if q.x >= 0 and q.y >= 0 and q.x < 16 and q.y < 16 and src.get_pixel(q.x, q.y).a > 0.5:
+					px(ox + x, y, Color("#14231a"))
+					break
 
 func run(api, image, project, params):
 	img = Image.create(16 * ICONS.size(), 16, false, Image.FORMAT_RGBA8)

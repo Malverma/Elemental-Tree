@@ -93,8 +93,12 @@ static func prestige_mult(prestiges: int) -> float:
 static func sunlight_per_min(branches: int) -> float:
 	return 10.0 + 5.0 * branches
 
+# Sap only grows troops (and the later Roots and Trunk upgrades), so it climbs
+# gently: a new Trunk level adds 1 sap/min. With a full level of production a
+# tree can afford its part upgrades plus a few troops of the newest kind; taps,
+# battle rewards and birds cover the rest.
 static func sap_per_min(trunk: int) -> float:
-	return 4.0 * trunk
+	return 3.0 + trunk
 
 static func formation_slots(trunk: int) -> int:
 	return mini(9, 2 + trunk)
@@ -104,6 +108,22 @@ static func root_reach(roots: int) -> int:
 
 static func roster_cap(tree_level: int) -> int:
 	return 3 + 2 * tree_level
+
+# Taps grow with the Tapping part and keep pace with the growth curve: at
+# tapping level L a leaf tap gives 1 / TAPS_PER_GROWTH of the growth needed for
+# level L + 1, so a tree with matching tapping always needs about the same
+# number of taps per level. (Level 1 needs 150, so untrained taps give 1.)
+const TAPS_PER_GROWTH := 150
+
+static func tap_sunlight(tap: int) -> int:
+	return maxi(TAP_SUNLIGHT, roundi(float(xp_to_next(tap + 1)) / TAPS_PER_GROWTH))
+
+# Trunk taps follow sap production rather than the growth curve: a tap gives
+# about a quarter-minute of the sap a trunk matching the tapping level makes.
+const TAPS_PER_SAP_MINUTE := 4
+
+static func tap_sap(tap: int) -> int:
+	return maxi(TAP_SAP, roundi(sap_per_min(tap + 1) / TAPS_PER_SAP_MINUTE))
 
 
 # --- Tree parts --------------------------------------------------------------
@@ -121,8 +141,12 @@ const PARTS := {
 		"name": "Branches", "start": 0, "sunlight_share": 0.2,
 		"blurb": "Catch more of the sun. Raises sunlight gathered per minute.",
 	},
+	"tap": {
+		"name": "Tapping", "start": 0, "sunlight_share": 0.2,
+		"blurb": "Each tap on the leaves or trunk gathers more, keeping pace with the tree's growth.",
+	},
 }
-const PART_ORDER := ["roots", "trunk", "branches"]
+const PART_ORDER := ["roots", "trunk", "branches", "tap"]
 
 
 # Part upgrades up to this level cost sunlight only, so early sap goes to troops.
@@ -150,6 +174,8 @@ static func part_effect(part: String, lvl: int) -> String:
 			return "Reach %d" % root_reach(lvl)
 		"trunk":
 			return "%d sap/min · %d slots" % [sap_per_min(lvl), formation_slots(lvl)]
+		"tap":
+			return "%d sun · %d sap a tap" % [tap_sunlight(lvl), tap_sap(lvl)]
 		_:
 			return "%d sunlight/min" % sunlight_per_min(lvl)
 
@@ -176,13 +202,18 @@ const SLOW_TIME := 2.0
 const BURN_TIME := 3.0
 const FREEZE_TIME := 1.0
 
-const BASE_TROOPS := ["soldier", "spearman", "archer"]
-const TROOP_ORDER := ["soldier", "spearman", "archer", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
+const BASE_TROOPS := ["soldier", "guard", "spearman", "archer"]
+const TROOP_ORDER := ["soldier", "guard", "archer", "spearman", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
 const TROOPS := {
 	"soldier": {
 		"name": "Twig Soldier", "img": "troop_soldier", "element": "", "unlock_level": 1, "sap_cost": 30,
 		"role": "Melee frontline", "preferred_row": "front",
 		"hp": 40, "dmg": 5, "reach": 1, "cooldown": 1.0, "speed": 40,
+	},
+	"guard": {
+		"name": "Twig Guard", "img": "troop_guard", "element": "", "unlock_level": 1, "sap_cost": 35,
+		"role": "Shield wall, takes 30% less damage", "preferred_row": "front",
+		"hp": 46, "dmg": 3, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.3,
 	},
 	"spearman": {
 		"name": "Twig Spearman", "img": "troop_spearman", "element": "", "unlock_level": 2, "sap_cost": 45,
@@ -190,36 +221,37 @@ const TROOPS := {
 		"hp": 38, "dmg": 6, "reach": 2, "cooldown": 1.2, "speed": 38, "vs_large": 1.5,
 	},
 	"archer": {
-		"name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 3, "sap_cost": 60,
+		"name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 1, "sap_cost": 60,
 		"role": "Ranged, fragile", "preferred_row": "back",
 		"hp": 18, "dmg": 6, "reach": 8, "cooldown": 1.4, "speed": 34,
 		"projectile": Color("#E8E2D0"), "target_lowest_hp": true,
 	},
 	# Elemental troops unlock once a land of their element is conquered,
-	# and cost some of that element's power to grow.
+	# and cost some of that element's power to grow. The farther their land,
+	# the later they arrive and the more sap they cost.
 	"vine_lasher": {
 		"name": "Vine Lasher", "img": "troop_vine_lasher", "element": "nature", "unlock_level": 1,
-		"sap_cost": 60, "power_cost": 6, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
-		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.025,
+		"sap_cost": 70, "power_cost": 6, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
+		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.012,
 	},
 	"tide_caller": {
 		"name": "Tide Caller", "img": "troop_tide_caller", "element": "water", "unlock_level": 1,
-		"sap_cost": 60, "power_cost": 6, "role": "Ranged, hits slow enemies", "preferred_row": "back",
+		"sap_cost": 90, "power_cost": 6, "role": "Ranged, hits slow enemies", "preferred_row": "back",
 		"hp": 20, "dmg": 4, "reach": 6, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "slow": true,
 	},
 	"ember_sprout": {
 		"name": "Ember Sprout", "img": "troop_ember_sprout", "element": "fire", "unlock_level": 1,
-		"sap_cost": 60, "power_cost": 6, "role": "Hard hitter, sets foes burning", "preferred_row": "front",
+		"sap_cost": 115, "power_cost": 6, "role": "Hard hitter, sets foes burning", "preferred_row": "front",
 		"hp": 28, "dmg": 8, "reach": 1, "cooldown": 1.0, "speed": 45, "burn": 0.3,
 	},
 	"frost_warden": {
 		"name": "Frost Warden", "img": "troop_frost_warden", "element": "ice", "unlock_level": 1,
-		"sap_cost": 60, "power_cost": 6, "role": "Armored tank, hits can freeze", "preferred_row": "front",
+		"sap_cost": 145, "power_cost": 6, "role": "Armored tank, hits can freeze", "preferred_row": "front",
 		"hp": 64, "dmg": 4, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.15, "freeze": 0.12,
 	},
 	"shade_twig": {
 		"name": "Shade Twig", "img": "troop_shade_twig", "element": "dark", "unlock_level": 1,
-		"sap_cost": 60, "power_cost": 6, "role": "Fast, heals from damage dealt", "preferred_row": "front",
+		"sap_cost": 180, "power_cost": 6, "role": "Fast, heals from damage dealt", "preferred_row": "front",
 		"hp": 34, "dmg": 6, "reach": 1, "cooldown": 1.0, "speed": 50, "lifesteal": 0.35,
 	},
 }
@@ -228,7 +260,7 @@ const TROOPS := {
 # its matchups, an ability and some stat changes.
 const INFUSE_COST := 5
 const INFUSION := {
-	"nature": {"hp_mult": 1.15, "dmg_mult": 1.1, "regen": 0.02, "desc": "+15% HP, +10% DMG, heals 2% HP per second"},
+	"nature": {"hp_mult": 1.15, "dmg_mult": 1.1, "regen": 0.01, "desc": "+15% HP, +10% DMG, heals 1% HP per second"},
 	"water": {"hp_mult": 1.1, "dmg_mult": 1.1, "slow": true, "desc": "+10% HP and DMG, hits slow enemies"},
 	"fire": {"hp_mult": 0.9, "dmg_mult": 1.3, "burn": 0.3, "desc": "+30% DMG, -10% HP, hits set enemies burning"},
 	"ice": {"hp_mult": 1.25, "dmg_mult": 1.0, "armor": 0.1, "freeze": 0.12, "desc": "+25% HP, takes 10% less damage, hits can freeze"},
@@ -269,14 +301,14 @@ const ENEMIES := {
 		"hp": 20, "dmg": 3, "reach": 1, "cooldown": 1.2, "speed": 30},
 	"burrow_rabbit": {"name": "Burrow Rabbit", "img": "enemy_burrow_rabbit", "element": "nature",
 		"hp": 11, "dmg": 3, "reach": 1, "cooldown": 1.1, "speed": 60, "dive": true},
-	"bramble_hare": {"name": "Bramble Hare", "img": "enemy_bramble_hare", "element": "nature",
-		"hp": 110, "dmg": 6, "reach": 1, "cooldown": 1.4, "speed": 34, "large": true, "boss": true, "cleave": 0.4},
+	"bramble_hare": {"name": "Thornmaw", "img": "enemy_bramble_hare", "element": "nature",
+		"hp": 90, "dmg": 5, "reach": 1, "cooldown": 1.4, "speed": 34, "large": true, "boss": true, "cleave": 0.4},
 	"spring_frog": {"name": "Spring Frog", "img": "enemy_spring_frog", "element": "water",
-		"hp": 22, "dmg": 4, "reach": 1, "cooldown": 1.25, "speed": 45},
+		"hp": 18, "dmg": 3, "reach": 1, "cooldown": 1.25, "speed": 45, "dive": true},
 	"ripple_sprite": {"name": "Ripple Sprite", "img": "enemy_ripple_sprite", "element": "water",
-		"hp": 13, "dmg": 3, "reach": 5, "cooldown": 1.6, "speed": 32, "projectile": Color("#7FC8F0")},
+		"hp": 12, "dmg": 3, "reach": 5, "cooldown": 1.8, "speed": 32, "projectile": Color("#7FC8F0")},
 	"mossback_turtle": {"name": "Old Mossback Turtle", "img": "enemy_mossback_turtle", "element": "water",
-		"hp": 150, "dmg": 7, "reach": 1, "cooldown": 1.95, "speed": 22, "large": true, "boss": true, "cleave": 0.5},
+		"hp": 120, "dmg": 6, "reach": 1, "cooldown": 1.95, "speed": 22, "large": true, "boss": true, "cleave": 0.5},
 	"cinder_lizard": {"name": "Cinder Lizard", "img": "enemy_cinder_lizard", "element": "fire",
 		"hp": 26, "dmg": 4, "reach": 1, "cooldown": 1.2, "speed": 40},
 	"ash_moth": {"name": "Ash Moth", "img": "enemy_ash_moth", "element": "fire",
@@ -293,7 +325,7 @@ const ENEMIES := {
 		"hp": 17, "dmg": 4, "reach": 1, "cooldown": 0.9, "speed": 66, "dive": true},
 	"shadow_slime": {"name": "Shadow Slime", "img": "enemy_shadow_slime", "element": "dark",
 		"hp": 48, "dmg": 5, "reach": 1, "cooldown": 1.4, "speed": 24},
-	"hollow_mole_king": {"name": "Hollow Mole King", "img": "enemy_hollow_mole_king", "element": "dark",
+	"hollow_mole_king": {"name": "Hollow King", "img": "enemy_hollow_mole_king", "element": "dark",
 		"hp": 290, "dmg": 10, "reach": 1, "cooldown": 1.7, "speed": 24, "large": true, "boss": true, "lifesteal": 0.3, "cleave": 0.5},
 	# Brambleheart Thicket
 	"thornback_boar": {"name": "Thornback Boar", "img": "enemy_thornback_boar", "element": "nature",
@@ -309,9 +341,15 @@ const ENEMIES := {
 		"hp": 16, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 38, "projectile": Color("#D8F1FF"), "slow": true},
 	"lagoon_kraken": {"name": "Lagoon Kraken", "img": "enemy_lagoon_kraken", "element": "water",
 		"hp": 310, "dmg": 7.8, "reach": 2, "cooldown": 1.8, "speed": 20, "large": true, "boss": true, "slow": true, "cleave": 0.5},
+	# Fused bosses of the two-element lands: a little less HP than the two bosses
+	# they replace put together. `fused` keeps them out of single-element dungeons.
+	"scaldmaw_hydra": {"name": "Scaldmaw Hydra", "img": "enemy_scaldmaw_hydra", "element": "water", "fused": true,
+		"hp": 470, "dmg": 11, "reach": 2, "cooldown": 1.7, "speed": 22, "large": true, "boss": true, "burn": 0.3, "slow": true, "cleave": 0.5},
+	"rimeshade_wight": {"name": "Rimeshade Wight", "img": "enemy_rimeshade_wight", "element": "ice", "fused": true,
+		"hp": 480, "dmg": 12, "reach": 1, "cooldown": 1.7, "speed": 26, "large": true, "boss": true, "freeze": 0.12, "lifesteal": 0.2, "cleave": 0.5},
 	# Wild twigs: rival elemental troops guarding the two-element lands, with the same stats as yours.
 	"wild_vine_lasher": {"name": "Wild Vine Lasher", "img": "enemy_wild_vine_lasher", "element": "nature",
-		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.025},
+		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.012},
 	"wild_tide_caller": {"name": "Wild Tide Caller", "img": "enemy_wild_tide_caller", "element": "water",
 		"hp": 20, "dmg": 4, "reach": 4, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "slow": true},
 	"wild_ember_sprout": {"name": "Wild Ember Sprout", "img": "enemy_wild_ember_sprout", "element": "fire",
@@ -324,21 +362,26 @@ const ENEMIES := {
 
 
 # --- World map ---------------------------------------------------------------
-# Coordinates are in a 680x1000 map space. Three roots grow out of the home
+# Coordinates are in a 680x1520 map space. Three roots grow out of the home
 # grove (west, north and south-east) and fork as they go; each land names the
 # land (or the grove) its root branches from, and `distance` is the reach the
 # roots need to get there. The last three lands belong to two elements and are
 # guarded by wild twigs.
 # `scale` multiplies every foe's HP and damage in that land.
 
-const MAP_SIZE := Vector2(680, 1000)
-const GROVE := Vector2(340, 450)
+## Tall to match a phone screen: the map fills it top to bottom, under both
+## bars (its last rows sit under the page bar, below the lands).
+const MAP_SIZE := Vector2(680, 1520)
+## Map rows the top bar and the bottom card cover; dungeons don't spawn there.
+const MAP_SAFE_TOP := 190.0
+const MAP_SAFE_BOTTOM := 1280.0
+const GROVE := Vector2(340, 682)
 const LEVEL_ORDER := ["sunny_meadow", "whispering_spring", "ember_vent", "frostbite_hollow", "gloomroot_cavern",
 	"brambleheart_thicket", "sunken_lagoon", "steamvent_marsh", "frostshade_barrows", "blighted_heartwood"]
 const LEVELS := {
 	"sunny_meadow": {
 		"name": "Sunny Meadow", "biome": "Meadows", "elements": ["nature"], "distance": 1, "from": "grove",
-		"pos": Vector2(175, 420), "playable": true, "daily_yield": 20,
+		"pos": Vector2(175, 643), "playable": true, "daily_yield": 25,
 		"rewards": {"first_xp": 60, "xp": 20, "sap": 15},
 		"waves": [
 			["burrow_rabbit", "burrow_rabbit", "burrow_rabbit"],
@@ -349,18 +392,18 @@ const LEVELS := {
 	},
 	"whispering_spring": {
 		"name": "Whispering Spring", "biome": "Springs", "elements": ["water"], "distance": 2, "from": "sunny_meadow",
-		"pos": Vector2(115, 250), "playable": true, "daily_yield": 25,
+		"pos": Vector2(115, 422), "playable": true, "daily_yield": 30,
 		"rewards": {"first_xp": 120, "xp": 35, "sap": 25},
 		"waves": [
 			["spring_frog", "spring_frog", "spring_frog"],
 			["spring_frog", "ripple_sprite", "spring_frog", "ripple_sprite"],
-			["spring_frog", "spring_frog", "spring_frog", "ripple_sprite", "ripple_sprite", "ripple_sprite"],
+			["spring_frog", "spring_frog", "spring_frog", "ripple_sprite", "ripple_sprite"],
 			["mossback_turtle", "ripple_sprite", "ripple_sprite"],
 		],
 	},
 	"ember_vent": {
 		"name": "Ember Vent", "biome": "Volcanic Ridge", "elements": ["fire"], "distance": 3, "from": "grove",
-		"pos": Vector2(340, 200), "playable": true, "label_above": true, "daily_yield": 30,
+		"pos": Vector2(340, 357), "playable": true, "label_above": true, "daily_yield": 40,
 		"rewards": {"first_xp": 180, "xp": 50, "sap": 35},
 		"waves": [
 			["cinder_lizard", "cinder_lizard", "cinder_lizard"],
@@ -371,7 +414,7 @@ const LEVELS := {
 	},
 	"frostbite_hollow": {
 		"name": "Frostbite Hollow", "biome": "Frozen Tundra", "elements": ["ice"], "distance": 4, "from": "ember_vent",
-		"pos": Vector2(565, 170), "playable": true, "daily_yield": 30,
+		"pos": Vector2(565, 318), "playable": true, "daily_yield": 40,
 		"rewards": {"first_xp": 220, "xp": 60, "sap": 40},
 		"waves": [
 			["frost_wolf", "frost_wolf", "frost_wolf"],
@@ -382,7 +425,7 @@ const LEVELS := {
 	},
 	"gloomroot_cavern": {
 		"name": "Gloomroot Cavern", "biome": "Underground Caves", "elements": ["dark"], "distance": 5, "from": "grove",
-		"pos": Vector2(555, 620), "playable": true, "daily_yield": 35,
+		"pos": Vector2(555, 903), "playable": true, "daily_yield": 45,
 		"rewards": {"first_xp": 260, "xp": 70, "sap": 45},
 		"waves": [
 			["cave_bat", "cave_bat", "cave_bat"],
@@ -393,7 +436,7 @@ const LEVELS := {
 	},
 	"brambleheart_thicket": {
 		"name": "Brambleheart Thicket", "biome": "Old Thicket", "elements": ["nature"], "distance": 6, "from": "sunny_meadow",
-		"pos": Vector2(140, 660), "playable": true, "daily_yield": 40,
+		"pos": Vector2(140, 955), "playable": true, "daily_yield": 50,
 		"rewards": {"first_xp": 450, "xp": 120, "sap": 60},
 		"waves": [
 			["thornback_boar", "thornback_boar", "pollen_wisp", "pollen_wisp"],
@@ -404,7 +447,7 @@ const LEVELS := {
 	},
 	"sunken_lagoon": {
 		"name": "Sunken Lagoon", "biome": "Drowned Ruins", "elements": ["water"], "distance": 7, "from": "gloomroot_cavern",
-		"pos": Vector2(420, 830), "playable": true, "daily_yield": 45,
+		"pos": Vector2(420, 1176), "playable": true, "daily_yield": 55,
 		"rewards": {"first_xp": 650, "xp": 170, "sap": 75},
 		"waves": [
 			["snapjaw_crab", "snapjaw_crab", "bubble_eel", "bubble_eel"],
@@ -415,31 +458,31 @@ const LEVELS := {
 	},
 	"steamvent_marsh": {
 		"name": "Steamvent Marsh", "biome": "Boiling Marsh", "elements": ["water", "fire"], "distance": 8, "from": "ember_vent",
-		"pos": Vector2(130, 110), "playable": true, "label_above": true, "daily_yield": 30, "scale": 0.7,
+		"pos": Vector2(130, 240), "playable": true, "label_above": true, "daily_yield": 40, "scale": 0.7,
 		"rewards": {"first_xp": 950, "xp": 250, "sap": 95},
 		"waves": [
 			["wild_ember_sprout", "wild_ember_sprout", "wild_tide_caller", "wild_tide_caller"],
 			["snapjaw_crab", "cinder_lizard", "snapjaw_crab", "bubble_eel", "ash_moth", "wild_tide_caller"],
 			["wild_ember_sprout", "wild_ember_sprout", "wild_ember_sprout", "wild_tide_caller", "wild_tide_caller", "ash_moth"],
 			["snapjaw_crab", "wild_ember_sprout", "snapjaw_crab", "bubble_eel", "wild_tide_caller", "bubble_eel", "ash_moth"],
-			["lagoon_kraken", "magma_salamander", "wild_ember_sprout", "wild_tide_caller", "wild_tide_caller"],
+			["scaldmaw_hydra", "wild_ember_sprout", "wild_tide_caller", "wild_tide_caller"],
 		],
 	},
 	"frostshade_barrows": {
 		"name": "Frostshade Barrows", "biome": "Frozen Barrows", "elements": ["ice", "dark"], "distance": 9, "from": "frostbite_hollow",
-		"pos": Vector2(575, 410), "playable": true, "daily_yield": 30, "scale": 0.95,
+		"pos": Vector2(575, 630), "playable": true, "daily_yield": 40, "scale": 0.95,
 		"rewards": {"first_xp": 1350, "xp": 350, "sap": 115},
 		"waves": [
 			["wild_frost_warden", "wild_shade_twig", "wild_frost_warden", "wild_shade_twig"],
 			["frost_wolf", "shadow_slime", "frost_wolf", "icicle_bat", "cave_bat", "wild_shade_twig"],
 			["wild_frost_warden", "wild_frost_warden", "wild_frost_warden", "wild_shade_twig", "wild_shade_twig", "icicle_bat"],
 			["shadow_slime", "wild_frost_warden", "shadow_slime", "icicle_bat", "wild_shade_twig", "icicle_bat", "cave_bat"],
-			["rime_elk", "hollow_mole_king", "wild_frost_warden", "wild_shade_twig", "wild_shade_twig"],
+			["rimeshade_wight", "wild_frost_warden", "wild_shade_twig", "wild_shade_twig"],
 		],
 	},
 	"blighted_heartwood": {
 		"name": "Blighted Heartwood", "biome": "Rotten Heartwood", "elements": ["nature", "dark"], "distance": 10, "from": "brambleheart_thicket",
-		"pos": Vector2(190, 880), "playable": true, "daily_yield": 35,
+		"pos": Vector2(190, 1241), "playable": true, "daily_yield": 45,
 		"rewards": {"first_xp": 1900, "xp": 480, "sap": 140},
 		"waves": [
 			["wild_vine_lasher", "wild_shade_twig", "wild_vine_lasher", "wild_shade_twig"],
@@ -486,17 +529,37 @@ const EXPEDITION_KILL_POWER := 1  # elemental power looted per enemy defeated, o
 # can't be stacked: drink it again once it has worn off.
 #   effect  "dmg": troops deal `amount` more damage
 #           "hp":  troops have `amount` more max HP (current HP scales with it)
-#           "xp":  growth earned while it is active is raised by `amount`
+#           "reach": troops strike from `amount` reach farther
 const POTION_WAVES := 5
-const ITEM_ORDER := ["thorn_draught", "bark_brew", "growth_tonic"]
+const ITEM_ORDER := ["thorn_draught", "bark_brew", "reach_tonic"]
 const ITEMS := {
 	"thorn_draught": {"name": "Thorn Draught", "img": "item_thorn_draught", "effect": "dmg", "amount": 0.15,
 		"desc": "Troops deal +15% damage for 5 waves."},
 	"bark_brew": {"name": "Bark Brew", "img": "item_bark_brew", "effect": "hp", "amount": 0.2,
 		"desc": "Troops get +20% max HP for 5 waves."},
-	"growth_tonic": {"name": "Growth Tonic", "img": "item_growth_tonic", "effect": "xp", "amount": 0.5,
-		"desc": "+50% growth from battles for 5 waves."},
+	"reach_tonic": {"name": "Longreach Tonic", "img": "item_reach_tonic", "effect": "reach", "amount": 1,
+		"desc": "Troops strike from +1 reach for 5 waves."},
 }
+
+# Birds that visit the Grove can be tapped. A tapped bird bursts into feathers
+# and leaves sap or sunlight (half the time each) worth BIRD_MINUTES of what a
+# tree of its level makes, or BIRD_POWER of a random element whose land has been
+# conquered (BIRD_POWER_CHANCE), or rarely a random potion (BIRD_POTION_CHANCE).
+const BIRD_MINUTES := 5.0
+const BIRD_POWER := 1
+const BIRD_POWER_CHANCE := 0.35
+const BIRD_POTION_CHANCE := 0.04
+
+
+## Sap a tapped bird leaves at tree `level`: BIRD_MINUTES of a trunk at that level.
+static func bird_sap(level: int) -> int:
+	return roundi(BIRD_MINUTES * sap_per_min(maxi(level, 1)))
+
+
+## Sunlight a tapped bird leaves at tree `level`: BIRD_MINUTES of branches one
+## level behind the tree, as the growth curve is timed.
+static func bird_sunlight(level: int) -> int:
+	return roundi(BIRD_MINUTES * sunlight_per_min(maxi(level - 1, 0)))
 
 
 static func is_expedition_checkpoint(index: int) -> bool:
@@ -607,7 +670,7 @@ static func roll_seed(element: String) -> String:
 
 
 # --- Dungeons ---------------------------------------------------------------------
-# DUNGEON_COUNT dungeons sit at random spots on the world map, each full of foes
+# DUNGEON_COUNT dungeons sit on DUNGEON_SPOTS around the world map, each full of foes
 # of one random element. A cleared dungeon crumbles and a new one appears
 # DUNGEON_RESPAWN_MINUTES later, 1 or 2 reach farther out than the one it
 # replaces (the first ones are rolled between reach 1 and DUNGEON_START_MAX);
@@ -616,12 +679,13 @@ static func roll_seed(element: String) -> String:
 # once the tree has prestiged.
 
 const DUNGEON_COUNT := 3
+const DUNGEON_EARLY_SEED_CHANCE := 0.15  # before the first prestige, a cleared dungeon may drop one seed
 const DUNGEON_RESPAWN_MINUTES := 30.0
 const DUNGEON_WAVES := 4  # the last one is a boss wave
 const DUNGEON_START_MAX := 5
 const DUNGEON_MAX_DISTANCE := 10
 const DUNGEON_SCALE_PER_REACH := 0.12  # foe strength per step of reach past (or short of) their home land
-const DUNGEON_GAP := 80.0  # map distance kept from lands, the grove, other dungeons and the edge
+const DUNGEON_GAP := 80.0  # map distance DUNGEON_SPOTS keep from the lands and the grove
 const DUNGEON_NAMES := {
 	"nature": "Overgrown Burrow", "water": "Flooded Grotto", "fire": "Smoldering Pit",
 	"ice": "Rime Crypt", "dark": "Shadow Den",
@@ -657,7 +721,8 @@ static func roll_dungeon(element: String, distance: int) -> Dictionary:
 	var boss_dist := 0
 	for key in ENEMIES:
 		var home := enemy_home(key)
-		if ENEMIES[key]["element"] != element or home == "" or not ENEMIES[key].get("boss", false):
+		if ENEMIES[key]["element"] != element or home == "" or not ENEMIES[key].get("boss", false) \
+				or ENEMIES[key].get("fused", false):
 			continue
 		var d: int = LEVELS[home]["distance"]
 		var fits := d <= distance
@@ -688,52 +753,26 @@ static func roll_dungeon(element: String, distance: int) -> Dictionary:
 	return {"element": element, "distance": distance, "scale": snappedf(scale, 0.01), "waves": waves}
 
 
-## A random map spot for a new dungeon, clear of the lands and their names, the
-## grove, the root paths and the `taken` dungeon spots. If the map is too crowded
-## for a fully clear spot, the roomiest one tried.
-static func roll_dungeon_pos(taken: Array) -> Vector2:
-	var avoid := _dungeon_avoid(taken)
-	var best := Vector2.ZERO
-	var best_gap := -1.0
-	for i in 300:
-		var p := Vector2(randf_range(DUNGEON_GAP, MAP_SIZE.x - DUNGEON_GAP), randf_range(DUNGEON_GAP, MAP_SIZE.y - DUNGEON_GAP))
-		var gap := _dungeon_gap(p, avoid)
-		if gap >= DUNGEON_GAP:
-			return p
-		if gap > best_gap:
-			best = p
-			best_gap = gap
-	return best
+## Where dungeons can stand: open ground clear of the lands and their names,
+## the grove and the root paths. Only DUNGEON_COUNT are out at once, so a new
+## dungeon always has a free spot to choose from.
+const DUNGEON_SPOTS := [Vector2(346, 856), Vector2(324, 1041), Vector2(585, 1129), Vector2(450, 470), Vector2(95, 790)]
 
 
-## Whether a dungeon at `p` is still clear of the lands, the grove, the root
-## paths and the `taken` spots (say, after the map layout changed).
+## A free dungeon spot (not in `taken`), avoiding `last`, the spot the dungeon
+## it replaces stood on, so a respawn turns up somewhere new.
+static func roll_dungeon_pos(taken: Array, last := Vector2.INF) -> Vector2:
+	var free := DUNGEON_SPOTS.filter(func(p): return not taken.any(func(t): return t.distance_to(p) < 1.0))
+	var fresh := free.filter(func(p): return last == Vector2.INF or last.distance_to(p) >= 1.0)
+	if not fresh.is_empty():
+		return fresh.pick_random()
+	return free.pick_random() if not free.is_empty() else DUNGEON_SPOTS.pick_random()
+
+
+## Whether `p` is a dungeon spot that none of the `taken` ones already uses
+## (a save from before the spots were fixed may have one elsewhere).
 static func dungeon_spot_clear(p: Vector2, taken: Array) -> bool:
-	return _dungeon_gap(p, _dungeon_avoid(taken)) >= DUNGEON_GAP
-
-
-# A node and the ends and middle of the name drawn under it.
-const _NAME_MARKS := [Vector2.ZERO, Vector2(-55, 48), Vector2(0, 48), Vector2(55, 48)]
-
-# Points a dungeon (and its name) must keep DUNGEON_GAP away from.
-static func _dungeon_avoid(taken: Array) -> Array:
-	var avoid := []
-	for at in [GROVE] + taken:
-		for m in _NAME_MARKS:
-			avoid.append(at + m)
-	for id in LEVELS:
-		for m in _NAME_MARKS:
-			avoid.append(LEVELS[id]["pos"] + (Vector2(m.x, -m.y) if label_above(id) else m))
-		avoid.append_array(root_path_points(LEVELS[id]["from"], id))
-	return avoid
-
-
-static func _dungeon_gap(p: Vector2, avoid: Array) -> float:
-	var gap := INF
-	for a in avoid:
-		for m in _NAME_MARKS:
-			gap = minf(gap, (p + m).distance_to(a))
-	return gap
+	return DUNGEON_SPOTS.any(func(q): return q.distance_to(p) < 1.0) and not taken.any(func(t): return t.distance_to(p) < 1.0)
 
 
 ## Whether a land's name goes above its node (set where a root comes up from

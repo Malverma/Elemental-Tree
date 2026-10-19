@@ -26,6 +26,30 @@ func _swipe(d: Vector2) -> void:
 		main._input(e)
 
 
+# Feeds the shell a finger dragged `d` in `steps` moves, then lifted.
+# Returns the current screen's x offset at the last move, before letting go
+# (INF if no neighbouring screen had come in alongside it).
+func _drag(d: Vector2, steps := 8) -> float:
+	var from := Vector2(360, 700)
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.pressed = true
+	e.position = from
+	main._input(e)
+	for i in steps:
+		var m := InputEventMouseMotion.new()
+		m.position = from + d * (i + 1) / steps
+		m.velocity = d / steps * 60.0 * 0.2  # an unhurried drag, well under a flick
+		main._input(m)
+	var x: float = main._view.position.x
+	var alongside: bool = main._drag_next != null
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.position = from + d
+	main._input(up)
+	return x if alongside else INF
+
+
 func _initialize() -> void:
 	_run.call_deferred()
 
@@ -43,13 +67,72 @@ func _run() -> void:
 	for i in 10:
 		game.tap_trunk()
 	_check(game.state["resources"]["sap"] == 10, "10 trunk taps give 10 sap")
+	var taps_ok := true
+	for lvl in range(0, GameData.MAX_LEVEL + 1):
+		var taps: float = GameData.xp_to_next(lvl + 1) / float(GameData.tap_sunlight(lvl))
+		taps_ok = taps_ok and absf(taps - GameData.TAPS_PER_GROWTH) <= GameData.TAPS_PER_GROWTH * 0.15
+	_check(taps_ok, "tap sunlight keeps pace with growth (~%d taps a level at every tapping level)" % GameData.TAPS_PER_GROWTH)
+	game.state["tree"]["tap"] = 1
+	var sun_before: float = game.state["resources"]["sunlight"]
+	var sap_before: float = game.state["resources"]["sap"]
+	game.tap_branches()
+	game.tap_trunk()
+	_check(game.state["resources"]["sunlight"] - sun_before == GameData.tap_sunlight(1) and GameData.tap_sunlight(1) > 1
+		and game.state["resources"]["sap"] - sap_before == GameData.tap_sap(1), "tapping level 1 gives more per tap")
+	game.state["tree"]["tap"] = 0
+	game.state["resources"]["sunlight"] = sun_before
+	game.state["resources"]["sap"] = sap_before
+	var old_tree: Dictionary = JSON.parse_string(JSON.stringify(game.state))
+	old_tree["tree"].erase("tap")
+	_check(game._normalize(old_tree)["tree"]["tap"] == 0, "older saves start with tapping at level 0")
+	old_tree["items"] = {"growth_tonic": 2}
+	old_tree["queued_potions"] = ["growth_tonic"]
+	var swapped: Dictionary = game._normalize(old_tree)
+	_check(swapped["items"] == {"reach_tonic": 2} and swapped["queued_potions"] == ["reach_tonic"], "old growth tonics become longreach tonics")
+
+	# Tapped grove birds leave sap or sunlight for the tree's level, power of a conquered element, or rarely a potion.
+	var bird_kinds := {}
+	var res0: Dictionary = game.state["resources"].duplicate(true)
+	var items0: Dictionary = game.state["items"].duplicate()
+	var levels0: Dictionary = game.state["levels"].duplicate(true)
+	game.state["levels"]["sunny_meadow"] = {"conquered": true, "stored": 0.0, "clears": 1}
+	var bird_ok := true
+	for i in 300:
+		var sap0: float = game.state["resources"]["sap"]
+		var sun0: float = game.state["resources"]["sunlight"]
+		var drop: Dictionary = game.tap_bird()
+		bird_kinds[drop["kind"]] = true
+		if drop["kind"] == "sap":
+			bird_ok = bird_ok and game.state["resources"]["sap"] - sap0 == GameData.bird_sap(game.state["tree"]["level"])
+		elif drop["kind"] == "sunlight":
+			bird_ok = bird_ok and game.state["resources"]["sunlight"] - sun0 == GameData.bird_sunlight(game.state["tree"]["level"])
+		elif drop["kind"] == "power":
+			bird_ok = bird_ok and drop["id"] == "nature"
+	_check(bird_ok and bird_kinds.size() == 4, "tapped birds give sap or sunlight for the tree's level, conquered power or a potion (%s)" % str(bird_kinds.keys()))
+	_check(GameData.bird_sap(10) > GameData.bird_sap(1) and GameData.bird_sunlight(10) > GameData.bird_sunlight(1), "bird sap and sunlight grow with the tree")
+	game.state["levels"] = levels0
+	_check(range(100).all(func(_i): return game.tap_bird()["kind"] != "power"), "birds give no power before a land is conquered")
+	game.state["resources"] = res0
+	game.state["items"] = items0
+	var birds: GroveBirds = main._view._scene._birds
+	var bird := birds._new_bird(0, Vector2(60, 330))
+	_check(not birds.pop_at(Vector2(150, 200)) and birds.pop_at(Vector2(61, 327)) and not birds._birds.has(bird)
+		and birds._feathers.size() >= 1, "a tapped bird bursts into feathers")
 
 	game.advance(60)
 	game.collect()
 	game.upgrade_part("roots")
 	game.upgrade_part("branches")
+	# Growing past level 1 waits on conquering the reach 1 land.
+	var sun_gate: float = game.state["resources"]["sunlight"]
+	var gate_res: Dictionary = game.channel()
+	_check(game.state["tree"]["level"] == 1 and game.state["tree"]["xp"] == game.growth_needed() and game.growth_blocked() == "sunny_meadow",
+		"the tree can't grow past level 1 before the reach 1 land is conquered")
+	_check(not game.channel()["ok"] and game.state["resources"]["sunlight"] == sun_gate - GameData.xp_to_next(1), "a full, blocked tree takes no more sunlight")
+	game.state["levels"]["sunny_meadow"] = {"conquered": true, "stored": 0.0, "clears": 1}
 	game.channel()
-	_check(game.state["tree"]["level"] == 2 and game.state["tree"]["roots"] == 1, "upgrades and level up")
+	game.state["levels"].erase("sunny_meadow")
+	_check(gate_res["ok"] and game.state["tree"]["level"] == 2 and game.state["tree"]["roots"] == 1, "upgrades and level up once the land is conquered")
 	_check(GameData.xp_to_next(1) == 150 and GameData.xp_to_next(9) == 72000, "level 1 → 2 is 15 min of sunlight, 9 → 10 is 24 h")
 	_check(is_equal_approx(GameData.growth_minutes(12), GameData.STORAGE_CAP_MINUTES), "levels past 10 stay at 24 h of sunlight")
 	_check(not GameData.part_cost("roots", 2).has("sap") and not GameData.part_cost("trunk", 2).has("sap"), "part upgrades to level 3 cost no sap")
@@ -57,10 +140,18 @@ func _run() -> void:
 	_check(GameData.part_cost("branches", 8)["sunlight"] == roundi(GameData.xp_to_next(8) * 0.2 / 5.0) * 5, "part sunlight follows the growth curve")
 	_check(not game.has_seen_enemy("burrow_rabbit"), "meadow foes unknown before the first battle")
 
-	# Swipes: left/right between screens (stepping past the locked garden), up/down for the sheet.
+	# Swipes: left/right between screens (the locked garden isn't there yet), up/down for the sheet.
+	_check(main.TABS.map(func(t): return t[0]) == ["grove", "map", "barracks", "garden"], "screens run grove, world map, barracks, garden")
 	_swipe(Vector2(-300, 10))
 	await _frames(25)
-	_check(main.tab == "barracks", "swiping left from the grove skips the locked garden")
+	_check(main.tab == "map", "swiping left from the grove opens the world map")
+	main.switch_tab("barracks")
+	await _frames(25)
+	_swipe(Vector2(-300, 10))
+	await _frames(25)
+	_check(main.tab == "barracks", "the locked garden can't be swiped to")
+	main.switch_tab("grove")
+	await _frames(25)
 	_swipe(Vector2(300, -10))
 	await _frames(25)
 	_check(main.tab == "grove", "swiping right returns to the grove")
@@ -75,6 +166,19 @@ func _run() -> void:
 	_check(not main._sheet_open, "swiping down closes the sheet")
 	_swipe(Vector2(40, 30))
 	_check(main.tab == "grove" and not main._sheet_open, "short drags aren't swipes")
+	var held := _drag(Vector2(-120, 6))
+	_check(is_equal_approx(held, -120.0) and main.tab == "grove", "a sideways drag carries the screen, its neighbour alongside")
+	await create_timer(0.5).timeout
+	_check(main.tab == "grove" and is_equal_approx(main._view.position.x, 0.0) and main._drag_next == null, "a short drag springs back")
+	_drag(Vector2(-main.size.x * 0.4, 6))
+	await create_timer(0.5).timeout
+	_check(main.tab == "map" and is_equal_approx(main._view.position.x, 0.0), "a long drag moves on to the next screen")
+	_drag(Vector2(main.size.x * 0.4, 0))
+	await create_timer(0.5).timeout
+	_check(main.tab == "grove", "dragging back returns to the grove")
+	held = _drag(Vector2(300, 0))
+	await create_timer(0.5).timeout
+	_check(main.tab == "grove" and held == INF and is_equal_approx(main._view.position.x, 0.0), "the first screen only gives a little at the edge")
 	main._pages["map"].pressed.emit()
 	await _frames(25)
 	_check(main.tab == "map", "tapping a screen's name opens it")
@@ -89,6 +193,18 @@ func _run() -> void:
 	game.summon("spearman")
 	await _frames()
 	_check(game.state["formation"].size() == 3, "summoned troops auto-placed")
+	var formation0: Array = game.state["formation"].duplicate(true)
+	var benched: Dictionary = formation0[0]
+	main._view._drop_on_roster(Vector2.ZERO, {"barracks_pad": true, "row": benched["row"], "lane": benched["lane"]})
+	_check(game.state["formation"].size() == 2 and game.troop_by_id(benched["troop_id"]), "dragging a troop onto the roster takes it out of the formation")
+	game.state["formation"] = formation0
+	await _frames()
+	var spare_id: int = game.state["troops"][-1]["id"]
+	game.summon("soldier")
+	var gone_id: int = game.state["troops"][-1]["id"]
+	main._view._drop_on_fire(Vector2.ZERO, {"roster_troop": gone_id})
+	_check(game.troop_by_id(gone_id).is_empty() and game.troop_by_id(spare_id), "dropping a troop on the campfire dismisses it")
+	await _frames()
 
 	var f: Array = game.state["formation"]
 	var front_id: int = f[0]["troop_id"]
@@ -132,7 +248,8 @@ func _run() -> void:
 	# Element rewards: a day's yield on first clear, 3 hours' worth on replays.
 	var meadow_day: int = GameData.LEVELS["sunny_meadow"]["daily_yield"]
 	if first_won:
-		_check(game.state["resources"]["power"]["nature"] == meadow_day, "first clear gives a day of nature power")
+		_check(game.state["resources"]["power"]["nature"] == 0 and game.level_state("sunny_meadow")["stored"] == meadow_day,
+			"first clear leaves a full day of nature power waiting to collect")
 	game.state["levels"]["sunny_meadow"] = {"conquered": true, "stored": 0.0, "clears": 1}
 	var before: float = game.state["resources"]["power"]["nature"]
 	var replay := BattleSim.new("sunny_meadow", game.formation_troops())
@@ -141,6 +258,22 @@ func _run() -> void:
 	var res: Dictionary = game.apply_battle_result(replay)
 	_check(res["power"] == GameData.power_reward("sunny_meadow", false) and game.state["resources"]["power"]["nature"] == before + res["power"],
 		"replay gives 3 hours of power (%d)" % res["power"])
+	var water0: float = game.state["resources"]["power"]["water"]
+	var spring_day: int = GameData.LEVELS["whispering_spring"]["daily_yield"]
+	var first := BattleSim.new("whispering_spring", game.formation_troops())
+	first.phase = "won"
+	first.waves_cleared = first.level["waves"].size()
+	var first_res: Dictionary = game.apply_battle_result(first)
+	first.dispose()
+	_check(first_res["first_clear"] and game.state["resources"]["power"]["water"] == water0 and game.level_state("whispering_spring")["stored"] == spring_day,
+		"a first clear leaves a full day of power waiting at the land (%d)" % spring_day)
+	main.switch_tab("map")
+	await _frames()
+	main._view._collect_land("whispering_spring")
+	_check(game.state["resources"]["power"]["water"] == water0 + spring_day and game.level_state("whispering_spring")["stored"] < 1.0,
+		"collecting it from the map adds the day's power")
+	game.state["levels"].erase("whispering_spring")
+	game.state["resources"]["power"]["water"] = water0
 
 	# Elemental troops and upgrading base troops with an element.
 	game.state["resources"]["sap"] = 500.0
@@ -190,7 +323,7 @@ func _run() -> void:
 	kill_exp.dispose()
 	var lost_exp := BattleSim.new_expedition(game.formation_troops())
 	lost_exp.loot_xp = 999
-	lost_exp.loot_items = {"growth_tonic": 2}
+	lost_exp.loot_items = {"reach_tonic": 2}
 	lost_exp.phase = "lost"
 	var xp0: int = game.state["tree"]["xp"]
 	var lv0: int = game.state["tree"]["level"]
@@ -294,7 +427,7 @@ func _run() -> void:
 	await _frames()
 
 	# Potions: readied in the Grove for the next battle, or drunk mid-battle.
-	game.state["items"] = {"thorn_draught": 2, "bark_brew": 1, "growth_tonic": 1}
+	game.state["items"] = {"thorn_draught": 2, "bark_brew": 1, "reach_tonic": 1}
 	main.switch_tab("grove")
 	await _frames()
 	main.open_inventory()
@@ -305,13 +438,15 @@ func _run() -> void:
 	_check(not game.queue_potion("bark_brew")["ok"], "can't ready a potion you're out of")
 	_check(game.unqueue_potion("bark_brew")["ok"] and game.item_count("bark_brew") == 1, "readied potion can be put back")
 	game.queue_potion("bark_brew")
-	game.queue_potion("growth_tonic")
+	game.queue_potion("reach_tonic")
 	await _frames()
 	inv[0].close()
 	main.start_battle("sunny_meadow")
 	await _frames()
 	var pv: Node = main._battle
 	_check(pv.sim.potion_active("bark_brew") and game.state["queued_potions"].is_empty(), "readied potions start with the battle")
+	_check(pv.sim._reach(pv.sim.allies[0]) == pv.sim.allies[0].def["reach"] + 1, "longreach tonic adds 1 reach")
+	_check(pv.sim._reach(pv.sim.enemies[0]) == pv.sim.enemies[0].def["reach"], "longreach tonic doesn't help foes")
 	var hp_base: float = GameData.troop_def(game.formation_troops()[0]["troop"])["hp"]
 	_check(is_equal_approx(pv.sim.allies[0].max_hp, hp_base * 1.2), "bark brew raises max HP by 20%")
 	pv._open_inventory()
@@ -325,7 +460,7 @@ func _run() -> void:
 	pv.sim.phase = "won"
 	pv.sim.waves_cleared = 4
 	var pres: Dictionary = game.apply_battle_result(pv.sim)
-	_check(pres["xp"] == roundi(GameData.LEVELS["sunny_meadow"]["rewards"]["xp"] * 1.5), "growth tonic gives +50%% growth (%d)" % pres["xp"])
+	_check(pres["xp"] == roundi(GameData.LEVELS["sunny_meadow"]["rewards"]["xp"]), "potions don't change growth (%d)" % pres["xp"])
 	pv.sim.dispose()
 	main.close_battle()
 	await _frames()
@@ -342,7 +477,14 @@ func _run() -> void:
 	game.state = game.new_game()
 	game.state["tree"]["level"] = GameData.MAX_LEVEL - 1
 	game.state["resources"]["sunlight"] = GameData.xp_to_next(GameData.MAX_LEVEL - 1) + GameData.prestige_cost()
+	for id in GameData.LEVEL_ORDER:
+		if GameData.LEVELS[id]["distance"] < GameData.MAX_LEVEL:
+			game.state["levels"][id] = {"conquered": true, "stored": 0.0, "clears": 1}
 	game.channel()
+	game.state["tree"]["xp"] = GameData.prestige_cost()
+	_check(game.growth_blocked() == "blighted_heartwood" and not game.channel()["ok"] and game.state["tree"]["prestige"] == 0,
+		"prestige waits on conquering the farthest land")
+	game.state["levels"]["blighted_heartwood"] = {"conquered": true, "stored": 0.0, "clears": 1}
 	_check(game.state["tree"]["level"] == GameData.MAX_LEVEL and game._add_xp(10 ** 7) == 0, "the tree stops at level %d" % GameData.MAX_LEVEL)
 	game.state["tree"]["xp"] = 0
 	main.switch_tab("grove")
@@ -359,6 +501,18 @@ func _run() -> void:
 	_check(is_equal_approx(strong.allies[0].def["dmg"], soldier["dmg"] * 1.1) and strong.allies[0].max_hp == roundi(soldier["hp"] * 1.1), "prestige boosts troop HP and damage by 10%")
 	strong.dispose()
 
+	# Developer prestige: meets every requirement from a fresh tree, then from a prestiged one.
+	game.state = game.new_game()
+	var gates_ok := true
+	for i in 2:
+		_check(game.dev_prestige()["ok"], "dev prestige works (prestige %d)" % (i + 1))
+		for lvl in range(1, GameData.MAX_LEVEL + 1):
+			gates_ok = gates_ok and game.level_state(game.growth_gate(lvl))["conquered"]
+	_check(gates_ok and game.state["tree"]["prestige"] == 2 and game.state["tree"]["level"] == 0 and game.state["tree"]["xp"] == 0,
+		"dev prestige conquers every gating land and prestiges")
+	_check(game.state["levels"]["blighted_heartwood"]["stored"] > 0.0 and game.has_seen_enemy("blight_treant"),
+		"dev-conquered lands hold their first day's power and their foes are known")
+
 	# Dungeons: three at a time; a cleared one crumbles and another appears 30 minutes later.
 	game.state = game.new_game()
 	game.state["tree"]["roots"] = 4
@@ -374,6 +528,27 @@ func _run() -> void:
 		for j in i:
 			spots_ok = spots_ok and dp.distance_to(Vector2(dgs[j]["x"], dgs[j]["y"])) >= GameData.DUNGEON_GAP
 	_check(spots_ok, "dungeons start within reach %d, clear of lands, the grove and each other" % GameData.DUNGEON_START_MAX)
+	var spots_clear := GameData.DUNGEON_SPOTS.size() == 5
+	for p: Vector2 in GameData.DUNGEON_SPOTS:
+		# Room for the name on screen, clear of the lands, the grove and the other spots.
+		spots_clear = spots_clear and p.x >= 75 and p.x <= GameData.MAP_SIZE.x - 75 \
+			and p.y >= GameData.MAP_SAFE_TOP + GameData.DUNGEON_GAP and p.y <= GameData.MAP_SAFE_BOTTOM - GameData.DUNGEON_GAP \
+			and p.distance_to(GameData.GROVE) >= GameData.DUNGEON_GAP
+		for id in GameData.LEVELS:
+			spots_clear = spots_clear and p.distance_to(GameData.LEVELS[id]["pos"]) >= GameData.DUNGEON_GAP
+		for q: Vector2 in GameData.DUNGEON_SPOTS:
+			spots_clear = spots_clear and (p == q or p.distance_to(q) >= 150.0)
+	_check(spots_clear, "the 5 dungeon spots sit on screen, clear of lands, the grove and each other")
+	_check(dgs.all(func(x): return GameData.DUNGEON_SPOTS.has(Vector2(x["x"], x["y"]))), "dungeons stand on the dungeon spots")
+	var old_spot := Vector2(400, 700)
+	var moved: Dictionary = game._normalize({"tree": game.state["tree"], "troops": [], "formation": [], "levels": {}, "next_troop_id": 1,
+		"dungeons": [{"id": 1, "distance": 1, "x": old_spot.x, "y": old_spot.y}]})
+	_check(GameData.DUNGEON_SPOTS.has(Vector2(moved["dungeons"][0]["x"], moved["dungeons"][0]["y"])), "a dungeon from an older save moves onto a spot")
+	var fresh_ok := true
+	for i in 50:
+		var taken := GameData.DUNGEON_SPOTS.slice(0, 2)
+		fresh_ok = fresh_ok and GameData.roll_dungeon_pos(taken, GameData.DUNGEON_SPOTS[2]) in GameData.DUNGEON_SPOTS.slice(3)
+	_check(fresh_ok, "a respawned dungeon picks a free spot other than the one it left")
 	var rolls_ok := true
 	for el in GameData.ELEMENTS:
 		for dist in range(1, 11):
@@ -385,6 +560,7 @@ func _run() -> void:
 					rolls_ok = rolls_ok and GameData.ENEMIES[key]["element"] == el
 	_check(rolls_ok, "every element rolls a dungeon of its own foes ending in a boss, at every distance")
 	var did: String = game.dungeon_id(dgs[0])
+	var cleared_at := Vector2(dgs[0]["x"], dgs[0]["y"])
 	var del: String = dgs[0]["element"]
 	var ddist: int = dgs[0]["distance"]
 	game.state["tree"]["roots"] = maxi(game.state["tree"]["roots"], ddist)  # dungeons may start past the roots
@@ -406,7 +582,7 @@ func _run() -> void:
 	for k in dres["items"]:
 		n_potions += dres["items"][k]
 	_check(n_potions == GameData.dungeon_reward_count(ddist), "a cleared dungeon gives potions")
-	_check(dres["seeds"].is_empty(), "no seeds from dungeons before the first prestige")
+	_check(dres["seeds"].values().reduce(func(a, b): return a + b, 0) <= 1, "at most one seed from a dungeon before the first prestige")
 	_check(game.dungeon(did).is_empty() and game.state["dungeons"].size() == GameData.DUNGEON_COUNT - 1, "a cleared dungeon crumbles")
 	game.tick()
 	_check(game.state["dungeons"].size() == GameData.DUNGEON_COUNT - 1 and game.next_dungeon_in() > 29 * 60, "the next dungeon waits 30 minutes")
@@ -421,6 +597,9 @@ func _run() -> void:
 	_check(game.state["dungeons"].size() == GameData.DUNGEON_COUNT and game.next_dungeon_in() < 0, "a new dungeon appears once the wait is over")
 	var fresh: Array = game.state["dungeons"].filter(func(x): return not x["id"] in known_ids)
 	_check(fresh.size() == 1 and fresh[0]["distance"] == next_dist, "the new dungeon appears at its rolled distance")
+	var spots_now: Array = game.state["dungeons"].map(func(x): return Vector2(x["x"], x["y"]))
+	_check(Vector2(fresh[0]["x"], fresh[0]["y"]) != cleared_at and spots_now.size() == 3 and spots_now.all(func(p): return spots_now.count(p) == 1),
+		"the new dungeon takes a different free spot than the one cleared")
 	game.state["tree"]["prestige"] = 1
 	var d2: Dictionary = game.state["dungeons"][0]
 	var sim2 := BattleSim.new(game.dungeon_id(d2), game.formation_troops(), false, [], 1.0, game.dungeon_level(d2))

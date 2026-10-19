@@ -1,21 +1,24 @@
-# World map art. params.part: "bg" (170x250 terrain, 1 px = 4 map units) or
+# World map art. params.part: "bg" (170x380 terrain, 1 px = 4 map units) or
 # "sheet" (landmarks, home grove, dungeon, flag, selection; see SHEET).
 # Land positions come from map_data.json (dumped from GameData).
 var img: Image
 const W := 170
-const H := 250
+const H := 380
 const DATA := "/home/bhizie/Projects/Elemental Tree/art/gen/map_data.json"
 const LEAF := [Color("#1f4d2b"), Color("#2e6b34"), Color("#3f8f3a"), Color("#5dbb4c"), Color("#9ad86a"), Color("#c8ef8f")]
 const BARK := [Color("#3a2212"), Color("#5e3a20"), Color("#7d4e2a"), Color("#a06a3a"), Color("#c08850")]
 # name -> [x, y, w, h] in the sprite sheet
 const SHEET := {
-	"map_nature": [0, 0, 20, 20], "map_water": [20, 0, 20, 20], "map_fire": [40, 0, 20, 20],
-	"map_ice": [60, 0, 20, 20], "map_dark": [80, 0, 20, 20], "map_grove": [140, 0, 28, 32],
+	# One tree per land, each its own design.
+	"tree_sunny_meadow": [0, 0, 20, 20], "tree_whispering_spring": [20, 0, 20, 20], "tree_ember_vent": [40, 0, 20, 20],
+	"tree_frostbite_hollow": [60, 0, 20, 20], "tree_gloomroot_cavern": [80, 0, 20, 20],
+	"tree_brambleheart_thicket": [100, 0, 20, 20], "tree_sunken_lagoon": [120, 0, 20, 20], "map_grove": [140, 0, 28, 32],
 	"dungeon": [0, 34, 13, 12], "map_flag": [16, 34, 8, 11],
 	# Dungeons take turns between these looks as they spawn; all are 13x12.
-	"dungeon_ruins": [30, 34, 13, 12], "dungeon_stump": [46, 34, 13, 12],
-	# Two-element lands: one tree, its crown half one element and half the other.
-	"map_water_fire": [62, 34, 20, 20], "map_ice_dark": [82, 34, 20, 20], "map_nature_dark": [102, 34, 20, 20],
+	"dungeon_ruins": [30, 34, 13, 12], "dungeon_sunken": [46, 34, 13, 12],
+	"dungeon_temple": [124, 34, 13, 12], "dungeon_mine": [140, 34, 13, 12],
+	# The two-element lands' trees.
+	"tree_steamvent_marsh": [62, 34, 20, 20], "tree_frostshade_barrows": [82, 34, 20, 20], "tree_blighted_heartwood": [102, 34, 20, 20],
 	# Plates frame each spot on the map. They're greyscale; the game tints them
 	# with the element's colour. A two-element land uses the halves.
 	"map_plate": [0, 56, 30, 24], "map_plate_l": [30, 56, 15, 24], "map_plate_r": [45, 56, 15, 24],
@@ -24,7 +27,7 @@ const SHEET := {
 # Crown colours (dark to light) for the element trees.
 const CROWN := {
 	"nature": [Color("#2e6b34"), Color("#3f8f3a"), Color("#5dbb4c"), Color("#9ad86a")],
-	"water": [Color("#1f5f7a"), Color("#2f86a8"), Color("#5bb4d8"), Color("#a8e0f0")],
+	"water": [Color("#153a86"), Color("#1f5cc0"), Color("#3489e6"), Color("#7cc8ff")],
 	"fire": [Color("#8a2a16"), Color("#c8421e"), Color("#f0642d"), Color("#ffb347")],
 	"ice": [Color("#7fb0c8"), Color("#bcdcee"), Color("#e2f2fa"), Color("#ffffff")],
 	"dark": [Color("#2a1f3a"), Color("#4a3366"), Color("#6d4a96"), Color("#9a6ad8")],
@@ -62,23 +65,28 @@ func auto_outline(r: Rect2i, amt := 0.72):
 					img.set_pixel(r.position.x + x, r.position.y + y, c)
 					break
 
-# A round-crowned tree in a 20x20 cell: the crown's left half in `left` colours,
-# its right half in `right` (the same for a one-element tree).
-func tree_icon(o: Array, left: Array, right: Array, bark: Array):
-	for y in range(11, 19):
-		var hw = 1 if y < 16 else 2
-		for x in range(10 - hw, 10 + hw):
-			px(o[0] + x, o[1] + y, bark[1] if x >= 10 else bark[0])
-	for c in [[5.5, 10, 4.3], [14.5, 10, 4.5], [10, 6, 5.4]]:
-		var cx = o[0] + c[0]
-		var cy = o[1] + c[1]
-		var r = c[2]
-		for y in range(int(cy - r - 1), int(cy + r + 2)):
-			for x in range(int(cx - r - 1), int(cx + r + 2)):
-				var n = Vector2((x - cx) / r, (y - cy) / (r * 0.95))
-				if n.length() <= 1.0 + 0.06 * sin(atan2(n.y, n.x) * 5.0 + cx):
-					var pal = left if x < o[0] + 10 else right
-					px(x, y, shade(n, x, y, pal))
+# A blob whose left half (x < split_x) takes `left` colours and right half `right`.
+func split_blob(cx: float, cy: float, rx: float, ry: float, left: Array, right: Array, split_x: float, lumpy := 0.0):
+	for y in range(int(cy - ry - 2), int(cy + ry + 3)):
+		for x in range(int(cx - rx - 2), int(cx + rx + 3)):
+			var n = Vector2((x - cx) / rx, (y - cy) / ry)
+			if n.length() <= 1.0 + lumpy * sin(atan2(n.y, n.x) * 5.0 + cx):
+				px(x, y, shade(n, x, y, left if x < split_x else right))
+
+# Pixels along a quadratic curve from a through control c to b, `steps` of them.
+func curve(a: Vector2, c: Vector2, b: Vector2, steps: int) -> Array:
+	var out = []
+	for t in steps + 1:
+		var u = float(t) / steps
+		out.append([a.lerp(c, u).lerp(c.lerp(b, u), u), u])
+	return out
+
+# A tapering trunk from y0 down to y1 at x 10, `hw(y)` half width, dark left, light right.
+func trunk(o: Array, y0: int, y1: int, hw: Callable, dark: Color, light: Color):
+	for y in range(y0, y1 + 1):
+		var w: int = hw.call(y)
+		for x in range(10 - w, 10 + w):
+			px(o[0] + x, o[1] + y, light if x >= 10 else dark)
 
 func pattern(ox, oy, rows: Array, cols: Dictionary):
 	for y in rows.size():
@@ -302,62 +310,62 @@ func flower(x, y, c):
 # --- sprites ---------------------------------------------------------------
 func sprite_sheet():
 	var s = SHEET
-	# nature: three round trees
-	var o = s["map_nature"]
-	for t in [[6, 11, 4.3], [14, 11, 4.6], [10, 7, 5.0]]:
-		for i in 4:
-			px(o[0] + int(t[0]), o[1] + int(t[1] + t[2]) - 1 + i, BARK[2])
-		blob(o[0] + t[0], o[1] + t[1], t[2], t[2] * 0.95, [LEAF[1], LEAF[2], LEAF[3], LEAF[4]], 0.06)
-	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
-	# water: a weeping willow over a little pool
-	o = s["map_water"]
-	blob(o[0] + 10, o[1] + 18.2, 5.5, 1.4, [Color("#2f64b5"), Color("#3a78c9"), Color("#5ba4e8")])
-	for y in range(9, 19):
-		px(o[0] + 10, o[1] + y, BARK[2]); px(o[0] + 9, o[1] + y, BARK[1] if y > 14 else BARK[2])
-	blob(o[0] + 10, o[1] + 7.5, 7.0, 4.6, CROWN["water"], 0.05)
-	for strand in [[4, 13], [6, 15], [8, 12], [12, 14], [14, 12], [16, 14]]:
-		for y in range(10, strand[1]):
-			px(o[0] + strand[0], o[1] + y, CROWN["water"][1] if y % 2 else CROWN["water"][2])
-	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
-	# fire: an ember tree with a blazing crown
-	o = s["map_fire"]
-	tree_icon(o, CROWN["fire"], CROWN["fire"], [Color("#2a1810"), Color("#3a2212")])
-	for f in [[7, 2], [12, 1], [15, 4], [5, 5]]:
-		px(o[0] + f[0], o[1] + f[1], Color("#ffd166"))
-	px(o[0] + 10, o[1] + 0, Color("#ffb347"))
-	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
-	# ice: a snowy pine
-	o = s["map_ice"]
-	for y in range(15, 19):
-		px(o[0] + 10, o[1] + y, BARK[2]); px(o[0] + 9, o[1] + y, BARK[1])
-	for tier in [[2, 7, 4.0], [6, 12, 6.0], [10, 16, 7.5]]:
-		for y in range(tier[0], tier[1]):
-			var hw = (y - tier[0] + 1) / float(tier[1] - tier[0]) * tier[2]
-			for x in range(int(10 - hw), int(10 + hw) + 1):
-				var c = Color("#3f8a6e") if x >= 10 else Color("#2e6b5a")
-				if y - tier[0] < 2 or (y == tier[1] - 1 and posmod(x, 2) == 0):
-					c = Color("#ffffff") if x >= 10 else Color("#cfe6f2")
-				px(o[0] + x, o[1] + y, c)
-	px(o[0] + 16, o[1] + 3, Color.WHITE); px(o[0] + 3, o[1] + 8, Color("#e2f2fa"))
-	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
-	# dark: a gnarled tree with a glowing hollow
-	o = s["map_dark"]
-	var trunk = Color("#3a2c48")
-	var tl = Color("#5e4a6e")
-	for y in range(7, 18):
-		var hw = 1 if y < 14 else (2 if y < 16 else 3)
-		for x in range(10 - hw, 10 + hw + 1):
-			px(o[0] + x, o[1] + y, tl if x > 10 else trunk)
-	for br in [[[10, 9], [7, 6], [5, 5], [4, 3]], [[10, 8], [13, 5], [15, 4], [16, 2]], [[10, 7], [10, 4], [9, 2]]]:
-		for i in range(br.size() - 1):
-			var a = Vector2(br[i][0], br[i][1])
-			var b = Vector2(br[i + 1][0], br[i + 1][1])
-			for t in 6:
-				var q = a.lerp(b, t / 5.0)
-				px(o[0] + int(q.x), o[1] + int(q.y), trunk)
-	px(o[0] + 10, o[1] + 12, Color("#d9c2ff")); px(o[0] + 10, o[1] + 13, Color("#9a6ad8"))
-	px(o[0] + 4, o[1] + 9, Color("#c8a2ff")); px(o[0] + 16, o[1] + 8, Color("#c8a2ff"))
-	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
+	# One tree per land.
+	tree_meadow(s["tree_sunny_meadow"])
+	var o
+	# water: a mangrove standing in a lagoon on arching prop roots
+	o = s["tree_whispering_spring"]
+	var cw = CROWN["water"]
+	var foam = Color("#e6f7ff")
+	blob(o[0] + 10, o[1] + 17.6, 9.0, 2.0, [Color("#1d4f9e"), Color("#2a6cc4"), Color("#4b97e0")])
+	for x in [3, 4, 8, 13, 14, 15]:
+		px(o[0] + x, o[1] + (18 if x % 2 else 17), Color("#9fd4ff"))
+	# Prop roots arch out from the trunk and curve down into the water.
+	# [end x, start y, bend y]: two arches each side and a short one down the middle.
+	for r in [[4.0, 12.0, 10.5], [7.0, 14.0, 14.0], [10.5, 14.0, 15.0], [13.0, 14.0, 14.0], [16.0, 12.0, 10.5]]:
+		var a = Vector2(10, r[1])
+		var e = Vector2(r[0], 17)
+		var c = Vector2(10 + (r[0] - 10) * 0.8, r[2])
+		for t in 13:
+			var u = t / 12.0
+			var q = a.lerp(c, u).lerp(c.lerp(e, u), u)
+			px(o[0] + int(round(q.x)), o[1] + int(round(q.y)), BARK[2] if q.x < 10 else BARK[3])
+		px(o[0] + int(r[0]) - 1, o[1] + 17, foam); px(o[0] + int(r[0]) + 1, o[1] + 17, foam)
+	for y in range(6, 15):
+		px(o[0] + 9, o[1] + y, BARK[1]); px(o[0] + 10, o[1] + y, BARK[2])
+	# Leaves: clusters of glossy, pointed water leaves, each clump catching the light.
+	for cl in [[3.2, 7.4, 2.6], [16.8, 7.4, 2.6], [6.2, 4.6, 2.9], [13.8, 4.6, 2.9], [10.0, 2.8, 3.0],
+			[10.0, 6.8, 3.2], [6.4, 8.4, 2.4], [13.6, 8.4, 2.4]]:
+		blob(o[0] + cl[0], o[1] + cl[1], cl[2], cl[2] * 0.8, cw, 0.12)
+	# Break the clumps into overlapping oval leaves, staggered row to row: each
+	# leaf lit along its top and parted from its neighbour by a dark vein.
+	for y in range(0, 13):
+		for x in range(0, 20):
+			var lvl = cw.find(img.get_pixel(o[0] + x, o[1] + y))
+			if lvl < 0:
+				continue
+			var cx = posmod(x + (y / 2 % 2) * 2, 4)
+			if cx == 3:
+				lvl -= 1
+			elif y % 2 == 0:
+				lvl += 1 if cx == 1 else 0
+			else:
+				lvl -= 1 if cx == 0 else 0
+			px(o[0] + x, o[1] + y, cw[clampi(lvl, 0, 3)])
+	# Drops dripping from the leaf tips.
+	for d in [[2, 10], [18, 10]]:
+		px(o[0] + d[0], o[1] + d[1], Color("#9fd4ff"))
+	tree_ember(s["tree_ember_vent"])
+	tree_fir(s["tree_frostbite_hollow"])
+	tree_shroom(s["tree_gloomroot_cavern"])
+	tree_thicket(s["tree_brambleheart_thicket"])
+	tree_palm(s["tree_sunken_lagoon"])
+	tree_cypress(s["tree_steamvent_marsh"])
+	tree_barrow(s["tree_frostshade_barrows"])
+	tree_willow(s["tree_blighted_heartwood"])
+	for key in s:
+		if key.begins_with("tree_"):
+			auto_outline(Rect2i(s[key][0], s[key][1], s[key][2], s[key][3]))
 	# home grove: a full tree with glowing roots
 	o = s["map_grove"]
 	for y in range(16, 30):
@@ -371,11 +379,6 @@ func sprite_sheet():
 	for c in [[14, 7, 7.0], [8, 12, 5.5], [20, 12, 5.5], [14, 13, 6.0]]:
 		blob(o[0] + c[0], o[1] + c[1], c[2], c[2] * 0.9, [LEAF[1], LEAF[2], LEAF[3], LEAF[4]], 0.06)
 	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
-	# two-element lands: one tree, crown split between the elements
-	for combo in [["water", "fire"], ["ice", "dark"], ["nature", "dark"]]:
-		o = s["map_%s_%s" % combo]
-		tree_icon(o, CROWN[combo[0]], CROWN[combo[1]], [BARK[1], BARK[2]])
-		auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
 	# dungeon: a small cave in a mossy rock, eyes in the dark
 	o = s["dungeon"]
 	blob(o[0] + 6.5, o[1] + 7.0, 5.6, 4.3, [Color("#6f6a5e"), Color("#a39c8e"), Color("#c8c2b4")])
@@ -384,46 +387,84 @@ func sprite_sheet():
 			if img.get_pixel(o[0] + x, o[1] + y).a > 0.5:
 				px(o[0] + x, o[1] + y, LEAF[3] if bayer(x, y) > 0.4 else LEAF[2])
 	for y in range(6, 12):
-		var hw = 2.4 * sqrt(maxf(0.0, 1.0 - pow((y - 11) / 5.0, 2)))
-		for x in range(int(6.5 - hw), int(6.5 + hw) + 1):
-			px(o[0] + x, o[1] + y, Color("#1a120c"))
-	px(o[0] + 5, o[1] + 8, Color("#ffd447")); px(o[0] + 8, o[1] + 8, Color("#ffd447"))
+		var hw = 2.6 * sqrt(maxf(0.0, 1.0 - pow((y - 11) / 5.0, 2)))
+		for x in range(13):
+			if absf(x - 6) <= hw:
+				px(o[0] + x, o[1] + y, Color("#1a120c"))
+	px(o[0] + 5, o[1] + 9, Color("#ffd447")); px(o[0] + 7, o[1] + 9, Color("#ffd447"))
 	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
-	# dungeon: small castle ruins, a light in the tower and eyes in the gate
+	# dungeon: a castle, two towers and a wall with an arched gate, a pennant on top
 	o = s["dungeon_ruins"]
 	pattern(o[0], o[1], [
-		"..a.a........",
-		"..aaa....b.b.",
-		"..aya....bab.",
-		"..aab....bab.",
-		".maab.c..bab.",
-		"..aabcbc.bya.",
-		"..aabcccbbab.",
-		"..aabcddcbab.",
-		"..aabdydybab.",
-		".maabddddbabm",
-		"mmmmmddddmmmm",
+		"......pFF....",
+		"......p......",
+		"a.a...p...a.a",
+		"aaa.a.a.a.aaa",
+		"aba.aaaaa.aba",
+		"adaaaaaaaaada",
+		"abaaabbbaaaba",
+		"abaabdddbaaba",
+		"abaabdddbaaba",
+		"abaabdddbaaba",
+		"mmmmmdddmmmmm",
 		".MMMMMMMMMMM.",
-	], {"a": Color("#c8c2b4"), "b": Color("#a39c8e"), "c": Color("#6f6a5e"), "d": Color("#1a120c"),
-		"y": Color("#ffd447"), "m": LEAF[3], "M": LEAF[2]})
+	], {"a": Color("#c8c2b4"), "b": Color("#8a8478"), "d": Color("#1a120c"), "p": BARK[2], "F": Color("#e23b22"),
+		"m": LEAF[3], "M": LEAF[2]})
 	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
-	# dungeon: a great hollow stump, eyes in the dark and mushrooms on its roots
-	o = s["dungeon_stump"]
+	# dungeon: sunken ruins, old columns and a broken lintel rising from the water
+	o = s["dungeon_sunken"]
 	pattern(o[0], o[1], [
 		".............",
-		"...TTTTTTT...",
-		"..TttTTTttT..",
-		"..TtTTtTTtT..",
-		"..bTTTTTTTB..",
-		"..bbbbbbbbB..",
-		".gbbBddBbbBg.",
-		".wbbddddbbBw.",
-		"..bddydydbB..",
-		".rbddddddbBr.",
-		"rrbbddddbbBrr",
-		".mmmmmmmmmmm.",
-	], {"T": Color("#a06a3a"), "t": Color("#d8a868"), "b": Color("#7d4e2a"), "B": Color("#5e3a20"),
-		"d": Color("#1a120c"), "y": Color("#ffd447"), "r": BARK[1], "g": Color("#e23b22"), "w": Color("#e8dcc8"), "m": LEAF[3]})
+		"aaaaaaaa.....",
+		"bbbbbbbb..aaa",
+		".ab..ab...ab.",
+		".ab..ab...ab.",
+		".ab..ab.a.ab.",
+		".abg.ab.ab.ab",
+		"WWWWWWWWWWWWW",
+		"wwLwwwWwwLwww",
+		"wWwwwLwwwwwWw",
+		".wwwwwwwwwww.",
+		".............",
+	], {"a": Color("#d8dccc"), "b": Color("#9aa494"), "g": LEAF[3],
+		"W": Color("#5ba4e8"), "w": Color("#2f64b5"), "L": Color("#bfe6ff")})
+	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
+	# dungeon: a stepped temple, stairs up the middle to a shrine with a glowing gem
+	o = s["dungeon_temple"]
+	pattern(o[0], o[1], [
+		".....ccc.....",
+		".....cyc.....",
+		"....aaaaa....",
+		"....bsssb....",
+		"...amsssaa...",
+		"...bbsssbb...",
+		"..aaasssama..",
+		"..bbbsssbbb..",
+		".maaasssaaaa.",
+		".bbbbsssbbbb.",
+		"aaaaasssaaaam",
+		".MMMMMMMMMMM.",
+	], {"a": Color("#e4d0a0"), "b": Color("#b49a68"), "s": Color("#f4e8c8"), "c": Color("#8a7048"),
+		"y": Color("#7ff0e0"), "m": LEAF[3], "M": LEAF[2]})
+	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
+	# dungeon: a mine, a timber-framed tunnel in a rocky hill, rails and a cart of ore
+	o = s["dungeon_mine"]
+	pattern(o[0], o[1], [
+		"..rrrrrr.....",
+		".rRRRRRRr....",
+		"rRRoRRRRRr...",
+		"rRtttttttRr..",
+		"rRtdddddtRr..",
+		"rRtdddddtRRr.",
+		"rRtdddddtRgog",
+		"rrtdddddtkkkk",
+		"mmtdddddtkKKk",
+		"sssssssssssss",
+		".MMtMMMtMMtM.",
+		".............",
+	], {"r": Color("#5e4e40"), "R": Color("#8a7a68"), "t": BARK[3], "d": Color("#1a120c"),
+		"s": Color("#b8b8b8"), "o": Color("#5ba4e8"), "g": Color("#ffd447"), "k": Color("#8a8a8a"),
+		"K": Color("#3a3a3a"), "m": LEAF[3], "M": LEAF[2]})
 	auto_outline(Rect2i(o[0], o[1], o[2], o[3]))
 	# conquered flag
 	o = s["map_flag"]
@@ -442,6 +483,239 @@ func sprite_sheet():
 	plate(s["map_plate_r"][0] - 0.5, s["map_plate_l"][1] + 11.5, 13.0, 10.0, round_rim)
 	o = s["map_plate_dungeon"]
 	plate(o[0] + 9.5, o[1] + 8.5, 8.5, 7.5, func(a): return 1.0 + 0.09 * absf(sin(a * 4.0)) - 0.05 * absf(sin(a * 7.0 + 1.0)))
+
+# --- land trees (20x20 cells, standing on y 18) -------------------------------
+
+const POOL := [Color("#1d4f9e"), Color("#2a6cc4"), Color("#4b97e0")]
+
+# Sunny Meadow: a young oak with a soft, sunlit crown dotted with blossoms.
+func tree_meadow(o: Array):
+	var ox = o[0]; var oy = o[1]
+	trunk(o, 10, 18, func(y): return 1 if y < 16 else (2 if y < 18 else 3), BARK[2], BARK[3])
+	for b in [[8, 11], [7, 10], [11, 11], [12, 10]]:
+		px(ox + b[0], oy + b[1], BARK[2])
+	var sun = [LEAF[2], LEAF[3], LEAF[4], LEAF[5]]
+	for c in [[5.0, 8.5, 3.4], [15.0, 8.5, 3.4], [7.2, 4.6, 3.6], [12.8, 4.6, 3.6], [10.0, 7.6, 4.3]]:
+		blob(ox + c[0], oy + c[1], c[2], c[2] * 0.9, sun, 0.05)
+	for f in [[6, 6], [13, 3], [15, 9], [9, 9], [11, 5], [4, 9]]:
+		px(ox + f[0], oy + f[1], Color("#ffffff"))
+		px(ox + f[0], oy + f[1] + 1, Color("#ffd166"))
+	for g in [[6, 18], [7, 17], [13, 18], [14, 17]]:
+		px(ox + g[0], oy + g[1], LEAF[3])
+
+# Ember Vent: a charred tree with bare, forking branches, each one burning at its
+# end, lava glowing in the cracks of its bark.
+func tree_ember(o: Array):
+	var ox = o[0]; var oy = o[1]
+	var ch = [Color("#1a100c"), Color("#2e1d16")]
+	var fl = [Color("#c8421e"), Color("#f0642d"), Color("#ffb347"), Color("#ffe08a")]
+	trunk(o, 11, 18, func(y): return 1 if y < 15 else (2 if y < 17 else 3), ch[0], ch[1])
+	var bough = {}
+	for br in [[[9, 13], [7, 11], [5, 9], [3, 8], [2, 6]], [[6, 10], [6, 8], [7, 6]], [[10, 12], [12, 10], [14, 9], [16, 8], [18, 6]],
+			[[14, 9], [14, 7]], [[10, 11], [10, 8], [9, 5]], [[10, 9], [12, 7], [13, 5]]]:
+		for n in range(br.size() - 1):
+			var a = Vector2(br[n][0], br[n][1]); var b = Vector2(br[n + 1][0], br[n + 1][1])
+			for t in 7:
+				var q = a.lerp(b, t / 6.0)
+				bough[Vector2i(roundi(q.x), roundi(q.y))] = true
+	for k in bough:
+		px(ox + k.x, oy + k.y, ch[0] if k.x < 10 else ch[1])
+	# embers smouldering along the boughs and lava in the trunk's cracks
+	for c in [[5, 9], [12, 10], [10, 9], [16, 8], [9, 13], [10, 15], [9, 16]]:
+		px(ox + c[0], oy + c[1], fl[0])
+	px(ox + 10, oy + 16, fl[2])
+	# a flame at every branch end: [x, base y, height, half width, lean]
+	for tg in [[2.0, 7.0, 5.0, 1.5, -0.3], [7.0, 7.0, 5.0, 1.5, 0.0], [9.2, 6.0, 5.5, 1.6, -0.1], [13.0, 6.0, 5.0, 1.5, 0.2],
+			[14.2, 8.0, 3.5, 1.3, 0.0], [18.0, 7.0, 5.0, 1.5, 0.3], [4.5, 9.5, 2.5, 1.1, 0.0], [16.0, 8.8, 2.5, 1.1, 0.0]]:
+		for y in range(int(tg[1] - tg[2]) - 1, int(tg[1]) + 1):
+			var t = (tg[1] - (y + 0.5)) / tg[2]
+			if t < 0.0 or t > 1.0:
+				continue
+			var w = 0.85 * tg[3] * sin(PI * (0.5 + 0.5 * t)) * minf(1.0, sqrt(t * 5.0 + 0.15))
+			var cx = tg[0] + tg[4] * t * t * 3.0
+			for x in range(int(cx - w) - 1, int(cx + w) + 2):
+				var dx = absf(x + 0.5 - cx) / maxf(w, 0.3)
+				if dx > 1.0:
+					continue
+				var k = (1.0 - dx) * 0.8 + (1.0 - t) * 0.4 + bayer(x, y) * 0.15 - 0.2
+				px(ox + x, oy + y, fl[0] if k < 0.35 else (fl[1] if k < 0.62 else (fl[2] if k < 0.88 else fl[3])))
+	for e in [[4, 0, 2], [16, 0, 2], [11, 0, 3], [0, 3, 1], [19, 2, 1]]:
+		px(ox + e[0], oy + e[1], fl[e[2]])
+
+# Frostbite Hollow: a snow-laden fir in tiers, icicles under its boughs, on a drift.
+func tree_fir(o: Array):
+	var ox = o[0]; var oy = o[1]
+	var pine = [Color("#10291f"), Color("#1f4a36"), Color("#33704f"), Color("#5f9c76")]
+	blob(ox + 10, oy + 18.2, 6.5, 1.5, [Color("#aac8de"), Color("#dcedf8"), Color("#ffffff")])
+	trunk(o, 15, 17, func(y): return 1, Color("#4a3020"), Color("#6a4630"))
+	# [top, bottom, half width], bottom tier first
+	for tr in [[8.0, 15.0, 8.5], [4.0, 11.0, 6.2], [0.0, 7.0, 4.0]]:
+		var mask = {}
+		for y in range(int(tr[0]), int(tr[1]) + 1):
+			var w = lerpf(0.6, tr[2], pow((y - tr[0]) / (tr[1] - tr[0]), 0.8))
+			for x in 20:
+				var dx = x + 0.5 - 10.0
+				if absf(dx) <= w and not (y == int(tr[1]) and posmod(x, 2) == 0):
+					mask[Vector2i(x, y)] = dx / w
+		for k in mask:
+			var col = pine[1] if mask[k] < -0.3 else (pine[2] if mask[k] < 0.5 else pine[3])
+			# snow caps the tops of the boughs in clumps; the bough tips droop dark
+			if not mask.has(k + Vector2i(0, 1)):
+				col = pine[0]
+			elif not mask.has(k + Vector2i(0, -1)) and (absf(mask[k]) < 0.35 or bayer(k.x, k.y) > 0.4):
+				col = Color("#ffffff") if mask[k] > -0.2 else Color("#dcedf8")
+			px(ox + k.x, oy + k.y, col)
+	for ic in [[4, 16], [8, 16], [13, 16], [16, 16], [6, 12], [14, 12]]:
+		px(ox + ic[0], oy + ic[1], Color("#bfe6ff"))
+
+# Gloomroot Cavern: a giant cave mushroom with glowing spots, little glowcaps at its foot.
+func tree_shroom(o: Array):
+	var ox = o[0]; var oy = o[1]
+	for y in range(8, 19):
+		var cx = 10 + roundi(sin(y * 0.5) * 0.6)
+		var w = 1 if y < 15 else 2
+		for x in range(cx - w - 1, cx + w + 1):
+			var d = x - cx
+			px(ox + x, oy + y, Color("#6e5a86") if d < -1 else (Color("#8f7cab") if d < 1 else Color("#b8a8d0")))
+	var cap = CROWN["dark"]
+	for y in range(0, 9):
+		for x in range(1, 19):
+			var n = Vector2((x + 0.5 - 10.0) / 8.6, (y + 0.5 - 8.5) / 8.0)
+			if n.length() <= 1.0:
+				px(ox + x, oy + y, shade(n, x, y, cap))
+	for x in range(2, 18):
+		px(ox + x, oy + 8, Color("#1c1428"))
+	for x in range(5, 15):
+		px(ox + x, oy + 9, Color("#2a1f3a"))
+	for sp in [[6, 4], [12, 2], [14, 5], [8, 1], [4, 7], [10, 5], [16, 7]]:
+		px(ox + sp[0], oy + sp[1], Color("#d9c2ff"))
+	px(ox + 13, oy + 2, Color("#9fe8ff")); px(ox + 7, oy + 4, Color("#9fe8ff"))
+	var glow = [Color("#2f6f7a"), Color("#3aa0a8"), Color("#7ff0e0")]
+	for m in [[4, 15.2, 2.6, 1.6, 16], [16, 16.2, 2.0, 1.3, 17]]:
+		for y in range(m[4], 19):
+			px(ox + m[0], oy + y, Color("#b8a8d0"))
+		blob(ox + m[0], oy + m[1], m[2], m[3], glow)
+	for sp in [[1, 12], [18, 11], [17, 13]]:
+		px(ox + sp[0], oy + sp[1], Color("#7ff0e0"))
+
+# Brambleheart Thicket: an ancient broad oak, deep green in two layers, brambles and berries at its roots.
+func tree_thicket(o: Array):
+	var ox = o[0]; var oy = o[1]
+	trunk(o, 9, 18, func(y): return 2 if y < 15 else (3 if y < 17 else 4), BARK[1], BARK[2])
+	px(ox + 9, oy + 12, BARK[0]); px(ox + 10, oy + 14, BARK[0]); px(ox + 11, oy + 11, BARK[3])
+	var deep = [Color("#173a20"), LEAF[0], LEAF[1], LEAF[2]]
+	for c in [[3.8, 9.0, 3.4], [16.2, 9.0, 3.4], [10.0, 8.6, 5.2]]:
+		blob(ox + c[0], oy + c[1], c[2], c[2] * 0.7, deep, 0.08)
+	for c in [[6.6, 5.0, 3.6], [13.4, 5.0, 3.6], [10.0, 2.8, 3.2]]:
+		blob(ox + c[0], oy + c[1], c[2], c[2] * 0.75, deep, 0.08)
+	var vine = Color("#3e5a22")
+	for v in [[2, 18], [3, 17], [4, 16], [5, 16], [6, 17], [5, 18], [14, 17], [15, 16], [16, 16], [17, 17], [18, 18], [15, 18]]:
+		px(ox + v[0], oy + v[1], vine)
+	for b in [[4, 15], [6, 16], [16, 15], [17, 16]]:
+		px(ox + b[0], oy + b[1], Color("#d0304a"))
+	for th in [[3, 16], [18, 17]]:
+		px(ox + th[0], oy + th[1], Color("#c8b890"))
+
+# Sunken Lagoon: a leaning palm on a sandy islet, long drooping fronds.
+func tree_palm(o: Array):
+	var ox = o[0]; var oy = o[1]
+	blob(ox + 10, oy + 17.6, 9.0, 2.0, POOL)
+	for x in [2, 15, 17]:
+		px(ox + x, oy + 18, Color("#9fd4ff"))
+	blob(ox + 8.5, oy + 17.0, 5.0, 1.5, [Color("#b08a4a"), Color("#d8b870"), Color("#f0dca0")])
+	for q in curve(Vector2(8, 17), Vector2(8, 10), Vector2(12, 5), 20):
+		var ring = int(q[1] * 20 / 2.5) % 2 == 0
+		px(ox + int(q[0].x), oy + int(q[0].y), BARK[3] if ring else BARK[2])
+		px(ox + int(q[0].x) + 1, oy + int(q[0].y), BARK[4] if ring else BARK[3])
+	var palm = [Color("#0e3e5c"), Color("#16707e"), Color("#22a4a0"), Color("#86e6d0")]
+	var top = Vector2(12.5, 5)
+	for f in [[Vector2(1, 9), Vector2(5, 1)], [Vector2(5, 1), Vector2(9, 0)], [Vector2(17, 1), Vector2(14, 0)],
+			[Vector2(19, 8), Vector2(18, 1)], [Vector2(16, 11), Vector2(17, 6)], [Vector2(7, 10), Vector2(7, 5)]]:
+		for q in curve(top, f[1], f[0], 16):
+			var x = ox + int(q[0].x); var y = oy + int(q[0].y)
+			px(x, y, palm[3] if q[1] > 0.25 and q[1] < 0.6 else palm[2])
+			if q[1] > 0.1 and q[1] < 0.85:
+				px(x, y + 1, palm[1])
+	px(ox + 11, oy + 6, Color("#5a3a1a")); px(ox + 13, oy + 6, Color("#5a3a1a")); px(ox + 12, oy + 5, palm[1])
+
+# Steamvent Marsh: a swamp cypress in a boiling pool, its feathery crown half water, half fire, hung with moss.
+func tree_cypress(o: Array):
+	var ox = o[0]; var oy = o[1]
+	blob(ox + 10, oy + 17.6, 9.0, 2.0, POOL)
+	for b in [[4, 18], [15, 18], [12, 19], [7, 19]]:
+		px(ox + b[0], oy + b[1], Color("#f0742d")); px(ox + b[0] + 1, oy + b[1] - 1, Color("#ffd166"))
+	trunk(o, 6, 17, func(y): return 1 if y < 13 else (2 if y < 16 else 3), BARK[2], BARK[3])
+	for k in [[4, 17], [4, 16], [16, 17], [16, 16]]:
+		px(ox + k[0], oy + k[1], BARK[2])
+	for c in [[10.0, 8.5, 6.2, 2.0], [4.0, 9.5, 3.0, 1.5], [16.0, 9.5, 3.0, 1.5], [6.5, 5.5, 3.8, 1.8], [13.5, 5.5, 3.8, 1.8], [10.0, 2.5, 3.2, 1.8]]:
+		split_blob(ox + c[0], oy + c[1], c[2], c[3], CROWN["water"], CROWN["fire"], ox + 10, 0.12)
+	for m in [[5, 11, 3], [8, 11, 2], [12, 11, 3], [15, 11, 2], [3, 11, 2], [17, 11, 2]]:
+		for i in m[2]:
+			px(ox + m[0], oy + m[1] + i, Color("#8a9a7a") if i < m[2] - 1 else Color("#b8c4a4"))
+	for st in [[2.0, 3.0, 1.6, 1.2], [17.5, 1.5, 1.4, 1.1], [1.5, 0.8, 1.0, 0.8]]:
+		blob(ox + st[0], oy + st[1], st[2], st[3], [Color("#c4ced6"), Color("#e8eff4"), Color("#ffffff")])
+
+# Frostshade Barrows: a dead, frost-rimed tree on a burial mound, ghost lights hanging from its bare boughs.
+func tree_barrow(o: Array):
+	var ox = o[0]; var oy = o[1]
+	blob(ox + 10, oy + 18.4, 7.5, 2.2, [Color("#2a3040"), Color("#3e4a5e"), Color("#5d7f99")])
+	for x in range(3, 18):
+		for y in range(15, 20):
+			if img.get_pixel(ox + x, oy + y).a > 0.5:
+				px(ox + x, oy + y, Color("#dcedf8") if bayer(x, y) > 0.3 else Color("#ffffff"))
+				break
+	var tk = [Color("#2e2238"), Color("#4a3a5e")]
+	for y in range(8, 18):
+		var cx = 10 + roundi(sin(y * 0.6) * 0.7)
+		var w = 1 if y < 14 else 2
+		for x in range(cx - w, cx + w):
+			px(ox + x, oy + y, tk[1] if x >= cx else tk[0])
+	var bough = {}
+	for br in [[[10, 9], [8, 7], [6, 6], [4, 4], [3, 2]], [[6, 6], [5, 7], [3, 7]], [[10, 8], [12, 6], [14, 5], [16, 3], [17, 1]],
+			[[14, 5], [16, 6], [18, 6]], [[10, 7], [10, 5], [9, 3], [10, 1]]]:
+		for i in range(br.size() - 1):
+			var a = Vector2(br[i][0], br[i][1]); var b = Vector2(br[i + 1][0], br[i + 1][1])
+			for t in 6:
+				var q = a.lerp(b, t / 5.0)
+				bough[Vector2i(roundi(q.x), roundi(q.y))] = true
+	for k in bough:
+		px(ox + k.x, oy + k.y, tk[0])
+	for k in bough:
+		if not bough.has(k + Vector2i(0, -1)) and bayer(k.x, k.y) > 0.35:
+			px(ox + k.x, oy + k.y - 1, Color("#ffffff"))
+		elif not bough.has(k + Vector2i(0, 1)) and bayer(k.x, k.y) > 0.75:
+			px(ox + k.x, oy + k.y + 1, Color("#bfe6ff"))
+	for l in [[3, 8], [16, 7], [13, 7]]:
+		px(ox + l[0], oy + l[1], Color("#e8dcff")); px(ox + l[0], oy + l[1] + 1, Color("#9a6ad8"))
+	px(ox + 9, oy + 12, Color("#9fe8ff"))
+
+# Blighted Heartwood: a rotting weeping willow, its curtain of strands half sickly green, half shadow.
+func tree_willow(o: Array):
+	var ox = o[0]; var oy = o[1]
+	trunk(o, 7, 18, func(y): return 1 if y < 15 else (2 if y < 17 else 3), Color("#3e2c3a"), Color("#5e4654"))
+	var sick = [Color("#2a3014"), Color("#4e5a1e"), Color("#7a8a2a"), Color("#b0c048")]
+	var dk = CROWN["dark"]
+	split_blob(ox + 10, oy + 4, 8.4, 3.8, sick, dk, ox + 10, 0.06)
+	for x in range(1, 19):
+		if (x >= 9 and x <= 10) or posmod(x, 3) == 1:
+			continue
+		var start = -1
+		for y in range(0, 9):
+			if img.get_pixel(ox + x, oy + y).a > 0.5:
+				start = y
+		if start < 0:
+			continue
+		var pal = sick if x < 10 else dk
+		var n = 4 + int(7 * absf(sin(x * 1.3 + 0.4)))
+		for i in n:
+			if start + 1 + i > 17:
+				break
+			px(ox + x, oy + start + 1 + i, pal[3] if i == n - 1 else (pal[1] if x % 2 else pal[2]))
+	px(ox + 9, oy + 13, Color("#08050c")); px(ox + 10, oy + 13, Color("#08050c"))
+	px(ox + 9, oy + 14, Color("#08050c")); px(ox + 10, oy + 14, Color("#a985e0"))
+	px(ox + 11, oy + 15, sick[3]); px(ox + 8, oy + 16, sick[2])
+	for sp in [[1, 15], [18, 14]]:
+		px(ox + sp[0], oy + sp[1], Color("#c8a2ff"))
 
 # A framed oval: dark outline, a shaded ring, and a see-through middle.
 # `rim(angle)` scales the radius, for the dungeon's craggy rock ring.

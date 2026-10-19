@@ -1,6 +1,6 @@
 extends Control
 ## Grove: the tree, full screen. Tap the leaves for sunlight and the trunk for sap;
-## swipe up for growth, tree-part upgrades and the inventory.
+## swipe up for growth and tree-part upgrades.
 
 const SAP_POP := Color("#F5821F")  # orange "+1" for trunk taps (sunlight pops are yellow)
 const STAGES := [[35, "World Tree"], [20, "Elder Tree"], [10, "Grown Tree"], [5, "Young Tree"], [1, "Sapling"]]
@@ -11,6 +11,8 @@ var _margin: MarginContainer
 var _title: Label
 var _pending_sun: Label
 var _pending_sap: Label
+var _tap_sun: Label
+var _tap_sap: Label
 
 
 func _init(p_main: Control) -> void:
@@ -33,10 +35,12 @@ func _ready() -> void:
 	var hint := UI.hbox(6)
 	hint.alignment = BoxContainer.ALIGNMENT_CENTER
 	hint.mouse_filter = MOUSE_FILTER_IGNORE
-	for part in [["Tap the leaves", "icon_sunlight", GameData.TAP_SUNLIGHT], ["· the trunk", "icon_sap", GameData.TAP_SAP]]:
+	_tap_sun = UI.label("", "SceneSmall")
+	_tap_sap = UI.label("", "SceneSmall")
+	for part in [["Tap the leaves", "icon_sunlight", _tap_sun], ["· the trunk", "icon_sap", _tap_sap]]:
 		hint.add_child(UI.label(part[0], "SceneSmall"))
 		hint.add_child(UI.icon(part[1], 22))
-		hint.add_child(UI.label("+%d" % part[2], "SceneSmall"))
+		hint.add_child(part[2])
 	col.add_child(hint)
 
 	var gap := Control.new()
@@ -68,6 +72,7 @@ func _set_scene() -> void:
 	_scene = GroveScene.new(GroveScene.stage_for(Game.state["tree"]["level"]))
 	_scene.set_anchors_preset(PRESET_FULL_RECT)
 	_scene.tapped.connect(_on_tap)
+	_scene.bird_tapped.connect(_on_bird)
 	add_child(_scene)
 	move_child(_scene, 0)
 
@@ -86,6 +91,8 @@ func refresh() -> void:
 	if GroveScene.stage_for(tree["level"]) != _scene.stage:
 		_set_scene()
 	_title.text = "%s · Lv %d" % [_stage_name(tree["level"]), tree["level"]]
+	_tap_sun.text = "+%s" % UI.fmt(GameData.tap_sunlight(tree["tap"]))
+	_tap_sap.text = "+%s" % UI.fmt(GameData.tap_sap(tree["tap"]))
 	live()
 
 
@@ -93,12 +100,13 @@ func sheet_title() -> String:
 	return "Upgrades"
 
 
-## Growth, rates, tree-part upgrades and the inventory, shown in the pull-up sheet.
+## Growth, rates and tree-part upgrades, shown in the pull-up sheet.
 func build_sheet() -> Control:
 	var s: Dictionary = Game.state
 	var tree: Dictionary = s["tree"]
 	var col := UI.vbox(16)
-	col.add_child(_inventory_row())
+	if not s["queued_potions"].is_empty():
+		col.add_child(_queued_row())
 
 	var need := Game.growth_needed()
 	var maxed: bool = tree["level"] >= GameData.MAX_LEVEL
@@ -124,6 +132,13 @@ func build_sheet() -> Control:
 			% [tree["xp"], need], "Small", true))
 	var ch_max := UI.button("Prestige" if maxed else "Channel to next level", Game.channel.bind(-1))
 	ch_max.size_flags_horizontal = SIZE_EXPAND_FILL
+	# Each level past the first waits on conquering the land at that reach.
+	var blocked := Game.growth_blocked()
+	if blocked != "":
+		if tree["xp"] >= need:
+			ch_max.text = "Ready to grow"
+			ch_max.disabled = true
+		g.add_child(UI.label(Game.growth_block_msg(blocked), "Hint", true))
 	g.add_child(ch_max)
 	var r := Game.rates()
 	for pair in [["icon_sunlight", "%d sunlight / min" % r["sunlight"]], ["icon_sap", "%d sap / min" % r["sap"]]]:
@@ -139,22 +154,12 @@ func build_sheet() -> Control:
 	return col
 
 
-# Inventory button, plus the potions readied for the next battle.
-func _inventory_row() -> Control:
+# The potions readied for the next battle (the inventory itself is in the top bar).
+func _queued_row() -> Control:
 	var row := UI.hbox(8)
-	var total := 0
-	for id in GameData.ITEM_ORDER:
-		total += Game.item_count(id)
-	var inv := UI.button("Inventory (%d)" % total, main.open_inventory)
-	inv.icon = UI.crisp("icon_inventory")
-	inv.add_theme_constant_override("icon_max_width", 30)
-	row.add_child(inv)
-	row.add_child(UI.spacer())
-	var queued: Array = Game.state["queued_potions"]
-	if not queued.is_empty():
-		row.add_child(UI.label("Next battle:", "Small"))
-		for id in queued:
-			row.add_child(UI.icon(GameData.ITEMS[id]["img"], 32))
+	row.add_child(UI.label("Next battle:", "Small"))
+	for id in Game.state["queued_potions"]:
+		row.add_child(UI.icon(GameData.ITEMS[id]["img"], 32))
 	return row
 
 
@@ -173,16 +178,17 @@ func _part_card(part: String) -> Control:
 	var head := UI.hbox(8)
 	head.add_child(UI.label(GameData.PARTS[part]["name"], "Heading"))
 	head.add_child(UI.label("Lv %d" % lvl, "Muted"))
-	head.add_child(UI.spacer())
-	var effect := UI.label("%s → %s" % [GameData.part_effect(part, lvl), GameData.part_effect(part, lvl + 1)], "Small")
-	effect.add_theme_color_override("font_color", UI.INK)
+	# Long effects wrap rather than widening the sheet past the screen.
+	var effect := UI.label("%s → %s" % [GameData.part_effect(part, lvl), GameData.part_effect(part, lvl + 1)], "Small", true)
+	effect.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	effect.add_theme_color_override("font_color", UI.ROOT_GLOW)
 	head.add_child(effect)
 	box.add_child(head)
 	box.add_child(UI.label(GameData.PARTS[part]["blurb"], "Small", true))
 	var row := UI.hbox(10)
 	row.add_child(UI.cost_row(Game.part_cost(part), s["resources"]))
 	row.add_child(UI.spacer())
-	var up := UI.button("Upgrade", Game.upgrade_part.bind(part))
+	var up := UI.button("Upgrade", Game.upgrade_part.bind(part), "PrimaryButton" if check["ok"] else "")
 	up.disabled = not check["ok"]
 	row.add_child(up)
 	box.add_child(row)
@@ -196,10 +202,23 @@ func _part_card(part: String) -> Control:
 func _on_tap(at: Vector2, part: String) -> void:
 	if part == "trunk":
 		Game.tap_trunk()
-		main.pop_text("+%d" % GameData.TAP_SAP, at, SAP_POP)
+		main.pop_text("+%s" % UI.fmt(GameData.tap_sap(Game.state["tree"]["tap"])), at, SAP_POP)
 	else:
 		Game.tap_branches()
-		main.pop_text("+%d" % GameData.TAP_SUNLIGHT, at, UI.ROOT_GLOW)
+		main.pop_text("+%s" % UI.fmt(GameData.tap_sunlight(Game.state["tree"]["tap"])), at, UI.ROOT_GLOW)
+
+
+func _on_bird(at: Vector2) -> void:
+	var drop := Game.tap_bird()
+	match drop["kind"]:
+		"sap":
+			main.pop_text("+%s" % UI.fmt(drop["amount"]), at, SAP_POP)
+		"sunlight":
+			main.pop_text("+%s" % UI.fmt(drop["amount"]), at, UI.ROOT_GLOW)
+		"power":
+			main.pop_text("+%d %s" % [drop["amount"], drop["id"]], at, GameData.BIOME_COLORS[drop["id"]])
+		"item":
+			main.pop_text(GameData.ITEMS[drop["id"]]["name"], at, UI.ACCENT)
 
 
 ## Called every second by the shell to refresh production counters.

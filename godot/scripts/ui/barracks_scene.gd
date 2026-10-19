@@ -3,15 +3,16 @@ extends PixelScene
 ## The Barracks in pixel art: a hollow under the tree's roots where the
 ## formation stands on nine sliced-log stumps (front row nearest the top, toward
 ## the enemy). Troops bob in place and fireflies drift about. Tapping a stump
-## emits `pad_tapped`; dragging a troop to another stump moves it (swapping).
+## emits `pad_tapped`; dragging a troop to another stump moves it (swapping), and
+## a roster troop dragged onto a stump stands there.
 
 signal pad_tapped(row: String, lane: int)
 
 ## Stump centres in design px: lanes left to right, rows front to back.
 const PAD_COLS := [46, 90, 134]
-const PAD_ROWS := [176, 214, 252]
+const PAD_ROWS := [136, 174, 212]
 ## Design y just below the back row, where the shell can start its own UI.
-const GRID_BOTTOM := 272.0
+const GRID_BOTTOM := 232.0
 const FIREFLY := Color("#ffd78a")
 
 ## The roster troop picked for placing (-1 for none); its stump, and the
@@ -42,7 +43,7 @@ func _init(p_selected: int) -> void:
 	selected_troop = p_selected
 	edge_sky = Color("#24160d")
 	edge_ground = Color("#3e2818")
-	ground_row = 150.0
+	ground_row = 110.0
 
 
 func _ready() -> void:
@@ -184,20 +185,25 @@ func _get_drag_data(at: Vector2) -> Variant:
 		return null
 	_dragged = true
 	_drag_key = k
+	set_drag_preview(drag_preview(_placed[k]))
+	sync()
+	return {"barracks_pad": true, "troop_id": _placed[k]["id"], "row": k.get_slice(":", 0), "lane": int(k.get_slice(":", 1))}
+
+
+## The troop's sprite, held under the finger at the scene's scale.
+func drag_preview(troop: Dictionary) -> Control:
 	var holder := Control.new()
 	var img := TextureRect.new()
-	img.texture = UI.crisp(GameData.troop_def(_placed[k])["img"])
+	img.texture = UI.crisp(GameData.troop_def(troop)["img"])
 	img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	img.size = Vector2(32, 32) * pixel_scale * 1.1
 	img.position = -img.size * Vector2(0.5, 0.7)
 	holder.add_child(img)
-	set_drag_preview(holder)
-	sync()
-	return {"barracks_pad": true, "row": k.get_slice(":", 0), "lane": int(k.get_slice(":", 1))}
+	return holder
 
 
 func _can_drop_data(at: Vector2, data: Variant) -> bool:
-	if not (data is Dictionary and data.has("barracks_pad")):
+	if not (data is Dictionary and (data.has("barracks_pad") or data.has("roster_troop"))):
 		return false
 	var k := _pad_at(to_design(at))
 	var target := k if k != _drag_key else ""
@@ -209,11 +215,22 @@ func _can_drop_data(at: Vector2, data: Variant) -> bool:
 
 func _drop_data(at: Vector2, data: Variant) -> void:
 	var k := _pad_at(to_design(at))
-	Game.move_troop(data["row"], data["lane"], k.get_slice(":", 0), int(k.get_slice(":", 1)))
+	var row := k.get_slice(":", 0)
+	var lane := int(k.get_slice(":", 1))
+	if data.has("barracks_pad"):
+		Game.move_troop(data["row"], data["lane"], row, lane)
+		return
+	# From the roster: a troop already standing elsewhere swaps places;
+	# a benched one takes the stump, benching whoever stood there.
+	for f in Game.state["formation"]:
+		if f["troop_id"] == data["roster_troop"]:
+			Game.move_troop(f["row"], f["lane"], row, lane)
+			return
+	Game.place_troop(data["roster_troop"], row, lane)
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_DRAG_END and _drag_key != "":
+	if what == NOTIFICATION_DRAG_END and (_drag_key != "" or _drop_key != ""):
 		_drag_key = ""
 		_drop_key = ""
 		sync()

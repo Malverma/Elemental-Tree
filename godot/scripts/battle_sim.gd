@@ -183,7 +183,7 @@ func potion_waves_left(id: String) -> int:
 	return potions[id] - _potion_start() + 1 if potions.has(id) else 0
 
 
-## Total boost from active potions with this effect ("dmg", "hp" or "xp").
+## Total boost from active potions with this effect ("dmg", "hp" or "reach").
 func boost(effect: String) -> float:
 	var total := 0.0
 	for id in potions:
@@ -264,7 +264,7 @@ func _pick_target(unit: Unit, foes: Array[Unit]) -> Unit:
 				best = f
 		return best
 	if unit.def.get("target_lowest_hp", false):
-		var range_px: float = unit.def["reach"] * GameData.REACH_UNIT + BODY
+		var range_px: float = _reach(unit) * GameData.REACH_UNIT + BODY
 		for f in foes:
 			if f.alive() and unit.pos.distance_to(f.pos) <= range_px and (best == null or f.hp < best.hp):
 				best = f
@@ -274,6 +274,11 @@ func _pick_target(unit: Unit, foes: Array[Unit]) -> Unit:
 		if f.alive() and (best == null or unit.pos.distance_to(f.pos) < unit.pos.distance_to(best.pos)):
 			best = f
 	return best
+
+
+# Attack reach, with any reach potion the squad is under.
+func _reach(unit: Unit) -> float:
+	return unit.def["reach"] + (boost("reach") if unit.side == "ally" else 0.0)
 
 
 func _damage_for(attacker: Unit, target: Unit) -> float:
@@ -376,14 +381,15 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 	var t := unit.target
 	if t == null:
 		return
-	var reach: float = unit.def["reach"] * GameData.REACH_UNIT + (BODY * 1.6 if t.def.get("large", false) else BODY)
+	var reach: float = _reach(unit) * GameData.REACH_UNIT + (BODY * 1.6 if t.def.get("large", false) else BODY)
 	var d := unit.pos.distance_to(t.pos)
 	# The 1px slack stops units from stalling a hair outside reach due to float error.
 	if d > reach + 1.0:
 		var step := minf(unit.def["speed"] * (0.6 if slowed else 1.0) * dt, d - reach)
 		unit.pos += (t.pos - unit.pos) / d * step
 		# Troops hold their formation: each guards a zone around its own spot.
-		if unit.side == "ally" and wave_time < CHARGE_TIME:
+		# Melee troops break ranks to run down a foe shooting from range.
+		if unit.side == "ally" and wave_time < CHARGE_TIME and not (unit.def["reach"] <= 2 and t.def["reach"] >= 3):
 			unit.pos = unit.home + (unit.pos - unit.home).limit_length(GameData.HOLD_RADIUS)
 	elif unit.cd <= 0.0:
 		unit.cd = unit.def["cooldown"] * (1.3 if slowed else 1.0)
@@ -475,7 +481,7 @@ func step(dt: float) -> void:
 
 
 func _collect_wave_loot() -> void:
-	loot_xp += roundi(GameData.expedition_wave_xp(wave) * (1.0 + boost("xp")))
+	loot_xp += GameData.expedition_wave_xp(wave)
 	if GameData.is_expedition_checkpoint(wave) or randf() < GameData.EXPEDITION_ITEM_CHANCE:
 		var item: String = GameData.ITEM_ORDER.pick_random()
 		loot_items[item] = loot_items.get(item, 0) + 1

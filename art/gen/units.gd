@@ -10,10 +10,11 @@ const GLOW := Color("#ffe36b")
 const GLOW_HI := Color("#fff8d0")
 const SOCKET := Color("#1a0f08")
 
-const TROOPS := ["soldier", "spearman", "archer", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
+const TROOPS := ["soldier", "guard", "spearman", "archer", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
 const ENEMIES := ["thorn_beetle", "burrow_rabbit", "spring_frog", "ripple_sprite", "cinder_lizard", "ash_moth", "frost_wolf", "icicle_bat",
 	"cave_bat", "shadow_slime", "thornback_boar", "pollen_wisp", "snapjaw_crab", "bubble_eel"]
-const BOSSES := ["bramble_hare", "mossback_turtle", "magma_salamander", "rime_elk", "hollow_mole_king", "blight_treant", "lagoon_kraken"]
+const BOSSES := ["bramble_hare", "mossback_turtle", "magma_salamander", "rime_elk", "hollow_mole_king", "blight_treant", "lagoon_kraken",
+	"scaldmaw_hydra", "rimeshade_wight"]
 
 var R := {
 	"bark": [Color("#2e1a0e"), Color("#5e3a20"), Color("#8a5530"), Color("#b07a45")],
@@ -134,6 +135,32 @@ func path(pts: Array, w: float, ramp: Array, edge := false):
 					mask[Vector2i(x, y)] = (d / maxf(w, 0.5)).dot(L) * 0.9 + 0.1
 	commit(mask, ramp, edge)
 
+# A polyline that narrows from width w0 at its start to w1 at its end, like a
+# root or branch.
+func taper(pts: Array, w0: float, w1: float, ramp: Array, edge := false):
+	var segs = []
+	var total = 0.0
+	for i in range(0, pts.size() - 2, 2):
+		var a = Vector2(pts[i], pts[i + 1])
+		var b = Vector2(pts[i + 2], pts[i + 3])
+		segs.append([a, b, total])
+		total += a.distance_to(b)
+	var r = Rect2(Vector2(pts[0], pts[1]), Vector2.ZERO)
+	for i in range(0, pts.size(), 2):
+		r = r.expand(Vector2(pts[i], pts[i + 1]))
+	var mask = {}
+	for y in range(int(r.position.y - w0) - 1, int(r.end.y + w0) + 2):
+		for x in range(int(r.position.x - w0) - 1, int(r.end.x + w0) + 2):
+			var p = Vector2(x + 0.5, y + 0.5)
+			for sg in segs:
+				var q = Geometry2D.get_closest_point_to_segment(p, sg[0], sg[1])
+				var w = lerpf(w0, w1, (sg[2] + sg[0].distance_to(q)) / total)
+				var d = p - q
+				if d.length() <= w:
+					mask[Vector2i(x, y)] = (d / maxf(w, 0.5)).dot(L) * 0.9 + 0.1
+					break
+	commit(mask, ramp, edge)
+
 func D(x: int, y: int, c: Color):
 	put(x, y, c)
 
@@ -195,6 +222,26 @@ func troop(name: String):
 			Ln(24, 23, 28, 10, 1.8, w, true)
 			D(26, 16, w[0]); D(27, 12, w[0])
 			E(29, 9, 1.6, 1.1, lf)
+		"guard":
+			# A broad stump in an acorn-cap helm, braced behind a tall plank shield.
+			var sh = R["shell"]
+			Ln(12, 23, 11, 29, 1.8, b); Ln(17, 23, 18, 29, 1.8, b)
+			Dr(9, 29, 3, 1, b[1]); Dr(18, 29, 3, 1, b[1])
+			Ln(9, 16, 5, 20, 1.3, b, true)
+			P([7, 12, 20, 12, 21, 25, 6, 25], b)
+			for y in range(15, 24, 2): D(9, y, b[1])
+			E(13.5, 11, 7.5, 3.5, sh)
+			for x in range(8, 20, 3): D(x, 10, sh[0]); D(x + 1, 9, sh[3])
+			Dr(6, 13, 15, 1, sh[0])
+			Ln(13, 7, 14, 4, 0.7, sh)
+			eye(10, 16); eye(14, 16)
+			Dr(11, 20, 3, 1, SOCKET)
+			# The shield: vertical planks in a stone rim, with a leaf on its boss.
+			P([17, 12, 29, 12, 29, 22, 23, 29, 17, 22], w, true)
+			for y in range(13, 26): D(21, y, w[0]); D(25, y, w[0])
+			path([17, 12, 29, 12, 29, 22, 23, 28, 17, 22, 17, 12], 0.6, R["ash"])
+			E(23, 18, 2.2, 2.2, R["gold"])
+			D(23, 17, lf[3]); D(22, 18, lf[2]); D(24, 18, lf[1]); D(23, 19, lf[1])
 		"spearman":
 			# A slim sapling with a leafy crown and a stone-tipped spear.
 			Ln(14, 24, 13, 29, 1.3, b); Ln(18, 24, 19, 29, 1.3, b)
@@ -273,18 +320,26 @@ func troop(name: String):
 			E(25, 17.5, 1.7, 1.7, R["fire"])
 			D(26, 13, R["fire"][3]); D(8, 8, R["fire"][2]); D(24, 9, R["fire"][3])
 		"frost_warden":
-			# A walking fir in snow, braced behind an ice-crystal shield.
-			Ln(13, 25, 12, 29, 1.8, b); Ln(19, 25, 20, 29, 1.8, b)
-			Dr(10, 29, 4, 1, b[1]); Dr(19, 29, 4, 1, b[1])
-			P([5, 26, 15.5, 13, 26, 26], R["pine"])
-			P([7, 19, 15.5, 7, 24, 19], R["pine"])
-			P([10, 11, 15.5, 2, 21, 11], R["pine"])
-			for sp in [[5, 26, 26, 26], [7, 19, 24, 19], [10, 11, 21, 11]]:
-				Ln(sp[0] + 2, sp[1] - 1, sp[2] - 2, sp[3] - 1, 0.8, R["snow"])
-			P([12, 3, 15.5, 1, 19, 3, 15.5, 5], R["snow"])
-			eye(12, 21, Color("#9fe8ff")); eye(17, 21, Color("#9fe8ff"))
-			P([22, 14, 27, 12, 30, 18, 27, 27, 22, 24], R["ice"], true)
-			D(26, 15, Color.WHITE); D(25, 16, R["ice"][3]); D(27, 20, R["ice"][3])
+			# A stout frost-bark stump in ice armour, crowned with crystals,
+			# braced behind a tall tower shield of ice.
+			var fb = [Color("#22344a"), Color("#4a6a86"), Color("#7c9eb8"), Color("#b4d2e6")]
+			Ln(12, 24, 11, 29, 1.8, fb); Ln(18, 24, 19, 29, 1.8, fb)
+			Dr(9, 29, 4, 1, fb[1]); Dr(18, 29, 4, 1, fb[1])
+			P([8, 12, 21, 12, 22, 25, 7, 25], fb)
+			for y in range(15, 24, 3): D(10, y, fb[0])
+			for y in range(14, 22, 3): D(19, y, fb[0])
+			P([8, 12, 10, 4, 12, 12], R["ice"]); P([11, 12, 14.5, 1, 18, 12], R["ice"]); P([16, 12, 19, 5, 21, 12], R["ice"])
+			D(14, 4, Color.WHITE); D(10, 7, R["ice"][3]); D(19, 8, R["ice"][3])
+			Ln(8, 12.5, 21, 12.5, 0.9, R["snow"])
+			E(8, 14, 3.2, 2.4, R["ice"], true); E(20.5, 14, 2.8, 2.4, R["ice"], true)
+			eye(11, 16, Color("#9fe8ff")); eye(16, 16, Color("#9fe8ff"))
+			Dr(13, 20, 3, 1, SOCKET)
+			Ln(20, 18, 23, 19, 1.3, fb, true)
+			P([22, 9, 29, 8, 30, 21, 26, 28, 22, 24], R["ice"], true)
+			Ln(23, 10, 28.5, 9.5, 0.4, [R["ice"][3], R["ice"][3], R["ice"][3], Color.WHITE])
+			for f in [[26, 17], [25, 17], [27, 17], [26, 16], [26, 18], [24, 15], [28, 19], [24, 19], [28, 15]]:
+				D(f[0], f[1], Color.WHITE if f == [26, 17] else R["ice"][3])
+			D(5, 27, R["snow"][3]); D(4, 23, R["snow"][2]); D(31, 26, R["snow"][3])
 		"shade_twig":
 			# A gnarled black twig-imp with thorn claws and violet eyes.
 			Ln(14, 23, 11, 29, 1.0, R["shade"]); Ln(17, 23, 20, 29, 1.0, R["shade"])
@@ -451,25 +506,120 @@ func enemy(name: String):
 			E(4, 7, 1.5, 1.5, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
 			E(9, 4, 1, 1, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
 			E(12, 8, 1.2, 1.2, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
+		# --- wild elementals: feral creatures of each element (red eyes, facing left) ---
+		"wild_vine_lasher":
+			# a snapping bulb plant on root legs, lashing thorny vines
+			Ln(14, 24, 10, 30, 1.0, R["bark"]); Ln(20, 24, 23, 30, 1.0, R["bark"]); Ln(17, 25, 17, 30, 0.8, R["bark"], true)
+			path([22, 16, 27, 12, 29, 7, 26, 3], 0.9, R["moss"])
+			path([23, 21, 28, 22, 30, 26], 0.9, R["moss"])
+			E(17, 18, 8, 7, R["leaf"])
+			P([8, 13, 16, 18, 8, 23], R["pink"], true)
+			P([8, 15, 13, 18, 8, 21], [R["shade"][0], R["shade"][1], R["shade"][1], R["shade"][2]])
+			for t in [[9, 14], [11, 15], [9, 22], [11, 21], [13, 17]]:
+				D(t[0], t[1], R["bone"][3])
+			P([14, 12, 17, 5, 20, 12], R["moss"], true); P([19, 13, 25, 8, 23, 15], R["moss"], true)
+			for th in [[27, 11], [29, 6], [28, 23], [25, 4]]:
+				D(th[0], th[1], R["bone"][2])
+			D(15, 13, Color("#ff3b2f")); D(15, 12, Color("#ffb0a0")); D(18, 14, Color("#ff3b2f"))
+		"wild_tide_caller":
+			# a conch-shell creature on tentacle legs, foam bubbling from its shell
+			for lx in [11, 15, 19, 23]:
+				path([lx, 23, lx - 2, 27, lx - 1, 30], 0.8, R["eel"])
+			P([19, 13, 30, 5, 26, 17], R["cream"])
+			E(18, 18, 9, 7, R["pink"], true)
+			path([13, 19, 16, 14, 22, 14, 25, 18, 22, 22, 17, 21], 0.45, [R["pink"][0], R["pink"][0], R["pink"][0], R["pink"][0]])
+			D(27, 9, R["pink"][1]); D(25, 12, R["pink"][1])
+			E(10, 20, 4, 4, R["water"], true)
+			D(8, 19, Color("#ff3b2f")); D(8, 18, Color("#ffb0a0")); D(11, 19, Color("#ff3b2f"))
+			Dr(8, 22, 3, 1, R["water"][0])
+			E(5, 12, 1.4, 1.4, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
+			E(8, 8, 1.1, 1.1, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
+			E(4, 6, 0.9, 0.9, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
+		"wild_ember_sprout":
+			# a living lump of coal, cracked with fire, flames for hair
+			Ln(12, 24, 10, 30, 1.7, R["char"]); Ln(20, 24, 22, 30, 1.7, R["char"])
+			Ln(23, 17, 27, 24, 1.5, R["char"])
+			E(16, 19, 8, 7, R["char"])
+			E(15, 11, 5.5, 4.5, R["char"], true)
+			# flame horns, and a molten core showing through the chest
+			P([10, 10, 7, 2, 12, 8], R["fire"]); P([19, 9, 23, 1, 21, 10], R["fire"])
+			E(16, 19, 2.5, 2.5, [R["fire"][1], R["fire"][2], R["fire"][3], Color("#fff1a8")])
+			Ln(9, 17, 4, 24, 1.5, R["char"], true)
+			for c in [[14, 16], [15, 17], [15, 18], [16, 19], [16, 20], [18, 21], [19, 21], [12, 21], [13, 22], [20, 16], [21, 15]]:
+				D(c[0], c[1], R["fire"][2])
+			D(15, 18, R["fire"][3]); D(19, 21, R["fire"][3]); D(4, 24, R["fire"][2]); D(27, 24, R["fire"][2])
+			D(11, 11, Color("#ff3b2f")); D(11, 10, Color("#ffd166")); D(14, 11, Color("#ff3b2f"))
+		"wild_frost_warden":
+			# an angular sentinel of ice crystal with jagged shoulders
+			P([11, 24, 14, 24, 12, 30], R["ice"]); P([18, 24, 21, 24, 20, 30], R["ice"])
+			P([8, 13, 3, 5, 11, 10], R["ice"]); P([24, 13, 29, 4, 22, 10], R["ice"])
+			P([16, 4, 24, 13, 22, 26, 10, 26, 8, 13], R["ice"], true)
+			Ln(16, 5, 16, 25, 0.4, [R["ice"][3], R["ice"][3], R["ice"][3], R["ice"][3]])
+			Ln(9, 13, 23, 13, 0.4, [R["ice"][0], R["ice"][0], R["ice"][0], R["ice"][0]])
+			Dr(10, 15, 5, 1, Color("#ff3b2f")); D(10, 15, Color("#ffb0a0"))
+			D(20, 9, Color.WHITE); D(5, 6, Color.WHITE); D(27, 5, Color.WHITE)
+		"wild_shade_twig":
+			# a hooded wraith in a tattered cloak, drifting above the ground
+			P([16, 3, 25, 13, 27, 27, 23, 24, 19, 28, 15, 24, 11, 28, 8, 24, 7, 13], R["shade"])
+			Ln(9, 17, 3, 21, 0.7, R["dark"]); Ln(23, 17, 28, 21, 0.7, R["dark"])
+			D(2, 22, R["dark"][3]); D(4, 22, R["dark"][3]); D(28, 22, R["dark"][3])
+			E(14, 11, 4.5, 4, [Color("#08050c"), Color("#08050c"), Color("#100a18"), Color("#1a1226")], true)
+			D(12, 11, Color("#ff3b2f")); D(12, 10, Color("#ffb0a0")); D(15, 11, Color("#ff3b2f"))
+			for w in [[26, 6], [5, 8], [29, 14], [22, 2]]:
+				D(w[0], w[1], R["dark"][3])
 	outline()
 
 # --- bosses (48x48, face left) --------------------------------------------------
 func boss(name: String):
 	match name:
 		"bramble_hare":
-			E(36, 30, 4, 4, R["cream"])
-			E(27, 31, 12, 9, R["fur"])
-			Ln(17, 18, 13, 3, 2.0, R["fur"]); Ln(21, 18, 23, 4, 2.0, R["fur"], true)
-			Ln(14, 6, 15, 14, 0.6, R["pink"]); Ln(22, 7, 21, 13, 0.6, R["pink"])
-			E(15, 25, 7, 6.5, R["fur"], true)
-			E(11, 28, 3, 2.5, R["cream"]); D(8, 27, R["pink"][1])
-			aeye(13, 23, Color("#b81e1e"), Color("#ffb0a0"))
-			D(10, 31, Color.WHITE); D(11, 31, Color.WHITE)
-			path([18, 30, 24, 26, 30, 28, 36, 24, 40, 27], 0.9, R["leaf"])
-			path([20, 36, 27, 33, 34, 36, 38, 33], 0.9, R["leaf"])
-			for t in [[24, 26], [30, 28], [36, 24], [27, 33], [34, 36]]:
-				P([t[0] - 1, t[1], t[0], t[1] - 3, t[0] + 1, t[1]], R["bone"])
-			E(19, 41, 4, 2, R["fur"], true); E(33, 41, 5, 2, R["fur"])
+			# Thornmaw: a vine monster of knotted creepers rising from its roots, a
+			# great flytrap head gaping to the left and thorny tendrils lashing out.
+			var vine = R["leaf"]
+			var dvine = [R["pine"][0], R["pine"][0], R["pine"][1], R["pine"][2]]
+			var maw = [Color("#3a0812"), Color("#8a1830"), Color("#d04060"), Color("#ff9ab0")]
+			E(24, 45, 16, 2, [R["shade"][1], R["shade"][1], R["shade"][2], R["shade"][2]])
+			# roots clawing into the ground
+			for rt in [[24, 40, 12, 45, 8, 44], [26, 40, 36, 45, 42, 44], [24, 41, 22, 46], [27, 41, 30, 46]]:
+				path(rt, 1.1, dvine)
+			# far tendril, in shadow, curling up behind
+			path([30, 26, 38, 20, 42, 12, 39, 6, 35, 7], 1.3, dvine, true)
+			# the knotted body: strands twisting up to the neck
+			for st in [[20, 42, 27, 35, 21, 28, 24, 20], [29, 42, 22, 35, 28, 28, 22, 21], [25, 42, 31, 34, 25, 26, 23, 19]]:
+				path(st, 1.5, vine, true)
+			# small tendrils curling off the back
+			path([29, 33, 35, 32, 38, 28, 36, 26], 0.8, vine, true)
+			path([27, 38, 34, 39, 37, 36], 0.8, vine, true)
+			for kn in [[23, 30, 26, 37], [27, 26, 22, 33]]:
+				Ln(kn[0], kn[1], kn[2], kn[3], 0.5, dvine)
+			# near tendril reaching forward, with a thorny tip
+			path([22, 31, 14, 34, 7, 32, 4, 27, 6, 24], 1.4, vine, true)
+			for th in [[13, 35, 12, 37], [8, 33, 7, 35], [4, 27, 2, 26], [6, 24, 5, 22], [40, 14, 43, 14], [38, 20, 40, 22]]:
+				Ln(th[0], th[1], th[2], th[3], 0.45, R["bone"])
+			# leaves along the body
+			for lf in [[30, 30, 1], [19, 36, -1], [31, 38, 1], [20, 25, -1]]:
+				P([lf[0], lf[1], lf[0] + lf[2] * 5, lf[1] - 3, lf[0] + lf[2] * 4, lf[1] + 1], R["moss"], true)
+			# the flytrap head, jaws open to the left
+			E(14, 20.5, 8, 4.2, maw, true)
+			P([24, 19, 20, 9, 12, 8, 4, 11, 3, 16, 12, 17], vine, true)
+			P([24, 22, 12, 23, 4, 25, 6, 29, 14, 30, 22, 27], vine, true)
+			E(14, 21, 6.5, 2.4, [maw[0], maw[0], maw[1], maw[1]])
+			# teeth along both jaws
+			for x in range(5, 21, 3):
+				D(x, 17, R["bone"][3]); D(x, 18, R["bone"][2])
+				D(x + 1, 24, R["bone"][3]); D(x + 1, 23, R["bone"][2])
+			# spines along the trap's rims
+			for sp in [[5, 11, 2, 9], [4, 14, 1, 13], [8, 9, 6, 6], [5, 26, 2, 27], [6, 29, 3, 31], [10, 30, 9, 33]]:
+				Ln(sp[0], sp[1], sp[2], sp[3], 0.45, R["moss"])
+			# drool and a glowing eye on the upper jaw
+			D(9, 25, Color("#b8f06a")); D(9, 26, Color("#e8ff6a"))
+			Dr(16, 11, 3, 2, SOCKET); D(16, 11, Color("#e8ff6a")); D(17, 11, Color("#b8e040"))
+			# a crest of thorns and a blossom on top of the head
+			for cr in [[13, 8, 11, 4], [17, 8, 17, 3], [21, 10, 24, 6]]:
+				Ln(cr[0], cr[1], cr[2], cr[3], 0.6, R["bone"])
+			E(22, 14, 2, 2, R["pink"], true); D(22, 14, Color("#ffd447"))
+			for f in [[3, 6], [44, 26], [33, 3], [2, 38], [45, 36]]:
+				D(f[0], f[1], Color("#e8ff6a"))
 		"mossback_turtle":
 			Ln(16, 36, 14, 43, 2.2, R["frog"]); Ln(34, 36, 36, 43, 2.2, R["frog"])
 			E(26, 30, 15, 10, R["shell"])
@@ -487,91 +637,288 @@ func boss(name: String):
 		"magma_salamander":
 			path([34, 32, 41, 30, 45, 24, 44, 19], 2.4, R["rock"])
 			Ln(31, 35, 34, 43, 1.8, R["rock"]); Dr(32, 43, 5, 1, R["rock"][1])
+			# basalt spines along the back, rooted in the body and leaning back,
+			# with magma welling up inside them to white-hot tips
+			var spines = []
+			for i in 6:
+				var sx = 14.5 + i * 4.0
+				var top = 31.0 - 6.5 * sqrt(maxf(0.0, 1.0 - pow((sx - 25.0) / 12.0, 2)))
+				var h = [3.0, 4.5, 6.0, 6.5, 5.0, 3.5][i]
+				spines.append([sx, top + 2.0, Vector2(sx + 1.6, top - h)])
+				P([sx - 3.0, top + 2.5, sx + 1.6, top - h, sx + 3.0, top + 2.5], R["rock"])
 			E(25, 31, 12, 6.5, R["rock"])
 			E(10, 28, 7, 5, R["rock"])
-			path([16, 28, 20, 32, 25, 29, 30, 33, 34, 30], 0.6, R["fire"])
+			for sp in spines:
+				var base = Vector2(sp[0], sp[1])
+				var n = int(ceil(base.distance_to(sp[2])))
+				for k in range(1, n):
+					var q = base.lerp(sp[2], float(k) / n)
+					var t = float(k) / n
+					if t > 0.3:
+						D(int(q.x), int(q.y), R["fire"][0] if t < 0.55 else (R["fire"][1] if t < 0.75 else (R["fire"][2] if t < 0.9 else R["fire"][3])))
+			# a molten seam along the spine line, cooling into the hide
+			for x in range(13, 38):
+				var top = 31.0 - 6.5 * sqrt(maxf(0.0, 1.0 - pow((x - 25.0) / 12.0, 2)))
+				var y = int(top) + 2
+				if opaque(x, y):
+					var near = false
+					for sp in spines:
+						near = near or absf(x - sp[0]) < 1.5
+					D(x, y, R["fire"][1] if near else R["fire"][0])
+			path([16, 29, 20, 32, 25, 29, 30, 33, 34, 30], 0.6, R["fire"])
 			path([6, 27, 10, 29, 13, 26], 0.5, R["fire"])
 			path([40, 28, 43, 23], 0.5, R["fire"])
-			for sx in [17, 22, 27, 32]:
-				P([sx - 2, 26, sx, 19, sx + 2, 26], R["fire"])
 			Dr(4, 31, 8, 1, R["fire"][1])
 			Ln(16, 35, 13, 43, 1.8, R["rock"], true); Dr(10, 43, 5, 1, R["rock"][1])
 			aeye(9, 26, Color("#ffd447"), Color("#fff6c0"))
 			D(4, 22, R["fire"][3]); D(20, 14, R["fire"][2]); D(30, 15, R["fire"][3])
 		"rime_elk":
-			Ln(33, 32, 34, 44, 1.6, R["wolf"]); Ln(19, 32, 18, 44, 1.6, R["wolf"])
-			E(28, 28, 12, 7, R["wolf"])
-			P([8, 26, 14, 18, 16, 10, 20, 12, 22, 30, 14, 31], R["wolf"])
-			E(9, 25, 4, 3, R["wolf"], true)
-			path([16, 11, 13, 5, 10, 1], 1.0, R["ice"]); path([13, 5, 8, 6], 0.8, R["ice"]); path([15, 8, 18, 3], 0.8, R["ice"])
-			path([19, 11, 24, 6, 28, 2], 1.0, R["ice"]); path([24, 6, 27, 9], 0.8, R["ice"]); path([22, 8, 21, 2], 0.8, R["ice"])
-			for sx in [22, 27, 32, 36]:
-				P([sx - 1, 23, sx + 1, 17, sx + 2, 23], R["ice"])
-			Ln(30, 33, 30, 44, 1.6, R["wolf"], true); Ln(15, 32, 14, 44, 1.6, R["wolf"], true)
-			D(6, 26, Color("#1a1010")); D(7, 26, Color("#1a1010"))
-			D(12, 22, Color("#2a6fa0")); D(12, 21, Color("#9fe8ff"))
-			D(4, 10, Color.WHITE); D(40, 12, R["ice"][3]); D(30, 4, Color.WHITE)
+			# A spirit elk of faceted ice: crystal legs, a glowing heart and great
+			# crystalline antlers, frost glittering around it.
+			var ice = R["ice"]
+			var core = [Color("#4aa3c9"), Color("#9fe8ff"), Color("#e8fbff"), Color.WHITE]
+			for leg in [[15, 30, 14, 45], [20, 31, 21, 45], [33, 30, 33, 45], [38, 29, 39, 45]]:
+				P([leg[0] - 2, leg[1], leg[0] + 2, leg[1], leg[2] + 0.8, leg[3], leg[2] - 0.8, leg[3]], ice)
+			P([12, 20, 26, 17, 42, 20, 44, 28, 36, 33, 16, 32], ice, true)
+			for fl in [[26, 17, 30, 32], [12, 20, 36, 33], [42, 20, 22, 32], [16, 32, 34, 18]]:
+				Ln(fl[0], fl[1], fl[2], fl[3], 0.35, [ice[3], ice[3], ice[3], ice[3]])
+			E(28, 25, 3, 3, core)
+			D(28, 24, Color.WHITE)
+			P([9, 11, 16, 12, 19, 23, 12, 24], ice, true)
+			P([2, 15, 9, 10, 13, 16, 6, 19], ice, true)
+			Ln(9, 11, 11, 23, 0.35, [ice[3], ice[3], ice[3], ice[3]])
+			D(7, 14, core[1]); D(8, 14, Color.WHITE)
+			# crystalline antlers
+			for sh in [[10, 10, 6, 0, 2.2], [12, 10, 16, -1, 2.2], [7, 6, 1, 3, 1.6], [14, 5, 21, 3, 1.6], [9, 4, 11, -1, 1.2]]:
+				var a = Vector2(sh[0], sh[1])
+				var b = Vector2(sh[2], sh[3])
+				var n = (b - a).orthogonal().normalized() * sh[4]
+				P([a.x + n.x, a.y + n.y, b.x, b.y, a.x - n.x, a.y - n.y], [ice[1], ice[2], ice[3], Color.WHITE], true)
+			for sp in [[44, 12], [3, 26], [46, 34], [24, 9], [40, 40]]:
+				D(sp[0], sp[1], Color.WHITE); D(sp[0] + 1, sp[1], ice[3]); D(sp[0], sp[1] + 1, ice[3])
 		"hollow_mole_king":
-			E(26, 31, 14, 11, R["mole"])
-			E(13, 28, 7, 6, R["mole"], true)
-			E(6, 30, 2.5, 2, R["pink"])
-			D(11, 26, Color("#ffd447")); D(12, 26, Color("#ffd447"))
-			P([10, 21, 11, 15, 14, 19, 17, 14, 20, 19, 22, 15, 22, 22, 10, 22], R["gold"], true)
-			D(14, 18, Color("#c03030")); D(19, 18, Color("#9a4ad8"))
-			for c in [[11, 36], [17, 38]]:
-				for k in 3:
-					Ln(c[0], c[1], c[0] - 5 + k * 2, c[1] + 5, 0.6, R["bone"])
-			E(14, 36, 4, 3, R["pink"], true)
-			E(33, 42, 6, 2, R["mole"])
-			D(30, 24, R["mole"][3]); D(34, 27, R["mole"][3]); D(4, 20, R["dark"][3]); D(40, 18, R["dark"][2])
+			# The Hollow King: a dark elemental of floating obsidian shards around a
+			# swirling void heart, crowned with drifting crystals, trailing shadow.
+			var ob = R["shade"]
+			var vio = [Color("#3a2160"), Color("#6a3fa8"), Color("#b48cf0"), Color("#efe2ff")]
+			var void_r = [Color("#04020a"), Color("#08050c"), Color("#120a20"), Color("#1c1030")]
+			E(24, 45, 14, 2, [R["shade"][0], R["shade"][0], R["shade"][1], R["shade"][1]])
+			# a rift in the ground it rises from
+			E(24, 45, 8, 1.2, [vio[1], vio[1], vio[2], vio[2]])
+			# shadow tail trailing down into the rift
+			P([16, 34, 32, 34, 28, 40, 24, 45, 20, 40], [ob[0], ob[1], ob[1], ob[2]])
+			for w in [[22, 41], [26, 39], [24, 43], [19, 37], [29, 37]]:
+				D(w[0], w[1], vio[1])
+			# far arm: floating shards ending in a claw
+			for s in [[37, 20, 3.0], [41, 26, 2.6], [43, 32, 2.2]]:
+				P([s[0] - s[2], s[1], s[0], s[1] - s[2] * 1.3, s[0] + s[2], s[1], s[0], s[1] + s[2] * 1.3], ob, true)
+			for c in [[43, 35, 41, 39], [44, 35, 45, 39], [43, 35, 43, 40]]:
+				Ln(c[0], c[1], c[2], c[3], 0.5, vio)
+			# the obsidian body
+			P([12, 16, 16, 11, 20, 13, 23, 8, 28, 12, 33, 9, 37, 17, 34, 22, 37, 29, 30, 34, 27, 38, 22, 35, 15, 36, 14, 29, 10, 23], ob, true)
+			for fl in [[21, 9, 18, 22], [30, 10, 32, 24], [13, 28, 22, 31], [35, 29, 28, 30], [18, 22, 32, 24]]:
+				Ln(fl[0], fl[1], fl[2], fl[3], 0.35, [ob[3], ob[3], ob[3], ob[3]])
+			# glowing cracks running out from the heart
+			for ck in [[24, 22, 26, 13, 29, 11], [20, 29, 15, 32, 14, 35], [29, 26, 33, 23, 36, 18], [27, 31, 31, 33, 33, 30]]:
+				path(ck, 0.4, [vio[1], vio[1], vio[2], vio[2]])
+			# swirling void heart
+			E(24, 27, 5.5, 5.5, void_r, true)
+			for i in 14:
+				var t = i / 14.0 * TAU
+				var r = 2.0 + i * 0.22
+				D(int(round(24 + cos(t * 1.4) * r)), int(round(27 + sin(t * 1.4) * r)), vio[1] if i < 9 else vio[2])
+			E(24, 27, 1.4, 1.4, [vio[2], vio[3], vio[3], Color.WHITE])
+			# face: glowing slit eyes looking left
+			for ey in [[15, 16, 1], [21, 16, -1]]:
+				Dr(ey[0], ey[1], 4, 2, void_r[0])
+				D(ey[0] + (3 if ey[2] > 0 else 0), ey[1] - 1, void_r[0])
+				Dr(ey[0], ey[1], 3, 1, vio[2]); D(ey[0] + 1, ey[1], Color.WHITE); D(ey[0] + 1, ey[1] + 1, vio[3])
+			# near arm: shards reaching forward to a great claw
+			for s in [[11, 20, 3.4], [7, 26, 3.0], [5, 32, 2.6]]:
+				P([s[0] - s[2], s[1], s[0], s[1] - s[2] * 1.3, s[0] + s[2], s[1], s[0], s[1] + s[2] * 1.3], ob, true)
+			for c in [[5, 35, 2, 40], [5, 35, 5, 41], [6, 35, 8, 40]]:
+				Ln(c[0], c[1], c[2], c[3], 0.6, vio, true)
+			# drifting crystal crown
+			for cr in [[15, 7, 1.6, 4], [20, 5, 1.8, 6], [25, 4, 2.0, 7], [30, 6, 1.6, 5]]:
+				P([cr[0] - cr[2], cr[1], cr[0], cr[1] - cr[3], cr[0] + cr[2], cr[1]], vio, true)
+			# motes of dark energy
+			for m in [[3, 14], [40, 9], [45, 22], [9, 40], [38, 42], [34, 3]]:
+				D(m[0], m[1], vio[2]); D(m[0] + 1, m[1], vio[1]); D(m[0], m[1] + 1, vio[1])
 		"blight_treant":
-			Ln(19, 36, 15, 44, 2.0, R["blight"]); Ln(28, 36, 32, 44, 2.0, R["blight"])
-			Dr(11, 44, 6, 1, R["blight"][1]); Dr(31, 44, 6, 1, R["blight"][1])
-			P([15, 16, 32, 16, 34, 38, 13, 38], R["blight"])
-			for y in range(19, 36, 3): D(30, y, R["blight"][1]); D(17, y + 1, R["blight"][1])
-			E(24, 12, 13, 8, R["sick"])
-			E(14, 15, 6, 4, R["sick"]); E(34, 15, 6, 4, R["sick"])
-			for dp in [[12, 19], [20, 20], [33, 20], [37, 17]]:
-				Ln(dp[0], dp[1], dp[0], dp[1] + 4, 0.5, R["sick"])
-			Dr(17, 22, 4, 3, SOCKET); Dr(25, 22, 4, 3, SOCKET)
-			D(17, 23, Color("#d0f048")); D(25, 23, Color("#d0f048"))
-			P([18, 29, 28, 29, 27, 32, 19, 32], [SOCKET, SOCKET, SOCKET, SOCKET])
-			D(20, 29, R["bone"][2]); D(25, 29, R["bone"][2])
-			path([15, 24, 9, 28, 5, 34], 1.4, R["blight"], true)
-			Ln(5, 34, 2, 37, 0.6, R["blight"]); Ln(5, 34, 4, 39, 0.6, R["blight"]); Ln(5, 34, 7, 39, 0.6, R["blight"])
-			path([33, 24, 38, 27, 41, 32], 1.2, R["blight"])
-			D(10, 8, R["sick"][3]); D(40, 6, R["dark"][3]); D(6, 22, R["dark"][2])
+			# A towering withered treant: roots that grip the ground, a gnarled crown
+			# of dead branches, a scowling hollow face aglow with blight, a crooked
+			# limb reaching out with twig claws and sickly fungus on its bark.
+			var bl = R["blight"]
+			var crease = [bl[0], bl[0], bl[0], bl[0]]
+			var glow = [Color("#6a3fa8"), Color("#a985e0"), Color("#d9c2ff"), Color.WHITE]
+			var hollow = [Color("#08050c"), Color("#08050c"), Color("#100a18"), Color("#100a18")]
+			# far branch, behind the trunk
+			taper([30, 16, 34, 12, 36, 7, 40, 4], 2.0, 0.5, bl)
+			taper([35, 9, 40, 9, 44, 6], 1.1, 0.4, bl)
+			# roots curling out from the trunk and gripping the ground
+			for rt in [[[19, 35, 15, 40, 10, 43, 5, 44], 2.6], [[32, 34, 37, 39, 42, 41, 46, 41], 2.4]]:
+				taper(rt[0], rt[1], 0.6, bl)
+			# the trunk, flared at the base and twisting as it rises
+			P([18, 12, 29, 10, 30, 20, 32, 31, 37, 40, 32, 38, 28, 41, 24, 39, 20, 41, 15, 39, 18, 31, 17, 21], bl, true)
+			for rt in [[[21, 38, 20, 43, 17, 46], 2.0], [[29, 38, 31, 43, 34, 46], 2.0]]:
+				taper(rt[0], rt[1], 0.5, bl, true)
+			path([22, 12, 20, 24, 22, 32, 21, 38], 0.4, crease)
+			path([27, 11, 29, 22, 28, 30, 31, 38], 0.4, crease)
+			# the crown: dead branches forking upward
+			taper([22, 12, 21, 7, 18, 3, 16, 0], 1.8, 0.4, bl, true)
+			taper([21, 7, 24, 3, 25, 0], 1.0, 0.3, bl, true)
+			taper([27, 11, 30, 6, 34, 4, 38, 3], 1.6, 0.4, bl, true)
+			taper([30, 6, 31, 1], 0.9, 0.3, bl, true)
+			# near limb reaching forward to twig claws
+			taper([19, 19, 14, 17, 9, 19, 5, 24], 2.4, 1.0, bl, true)
+			for c in [[5, 24, 2, 21, 0, 21], [5, 24, 1, 25], [5, 24, 3, 28, 2, 31]]:
+				taper(c, 1.0, 0.3, bl, true)
+			# the face: scowling slanted hollows with glowing pupils and a jagged grin
+			P([17, 17, 23, 20, 22, 23, 18, 22], hollow)
+			P([25, 20, 30, 16, 30, 21, 26, 23], hollow)
+			Ln(16, 16, 23, 19, 0.6, crease); Ln(25, 19, 31, 15, 0.6, crease)
+			D(21, 21, glow[3]); D(20, 21, glow[2]); D(21, 22, glow[1]); D(27, 21, glow[3]); D(28, 21, glow[2]); D(27, 22, glow[1])
+			P([18, 26, 31, 25, 30, 29, 28, 31, 26, 29, 24, 32, 22, 29, 20, 31], hollow)
+			for f in [[20, 26], [23, 26], [26, 26], [29, 25]]:
+				D(f[0], f[1], bl[3]); D(f[0], f[1] + 1, bl[2])
+			D(24, 30, glow[1]); D(27, 29, glow[0])
+			for lf in [[16, 0], [25, 0], [38, 3], [31, 1], [44, 6]]:
+				D(lf[0], lf[1], R["sick"][1])
+			for sh in [[17, 33, 3.2], [32, 24, 2.8], [33, 33, 2.4]]:
+				E(sh[0], sh[1], sh[2], 1.2, R["sick"], true)
+			for m in [[9, 10], [42, 18], [12, 5], [40, 30], [6, 34]]:
+				D(m[0], m[1], glow[1])
+			D(18, 35, R["sick"][3]); D(18, 36, R["sick"][2]); D(34, 36, R["sick"][3])
 		"lagoon_kraken":
-			for t in [[18, 34, 10, 44, 4, 40], [22, 36, 18, 45, 13, 46], [28, 36, 30, 45, 35, 46], [33, 34, 40, 43, 45, 38]]:
-				path([t[0], t[1], t[2], t[3], t[4], t[5]], 2.0, R["kraken"])
-			E(25, 21, 12, 14, R["kraken"])
-			for s in [[20, 12], [29, 10], [32, 18], [18, 22]]:
-				E(s[0], s[1], 1.5, 1.5, [R["kraken"][3], R["kraken"][3], R["kraken"][3], R["pink"][3]])
-			Dr(17, 26, 4, 3, Color("#fff0a0")); Dr(18, 27, 2, 2, Color("#1a1010"))
-			Dr(27, 26, 4, 3, Color("#fff0a0")); Dr(28, 27, 2, 2, Color("#1a1010"))
-			path([14, 30, 8, 26, 4, 20, 6, 15], 2.0, R["kraken"], true)
-			path([25, 36, 24, 44, 21, 47], 2.0, R["kraken"], true)
-			for k in [[7, 25], [5, 20], [24, 41]]:
-				D(k[0], k[1], R["pink"][2])
-			E(40, 8, 1.5, 1.5, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
-			E(44, 14, 1, 1, [R["water"][3], R["water"][3], R["water"][3], Color.WHITE])
+			# A deep-sea giant squid surging from the lagoon: a long finned mantle,
+			# one great eye, glowing spots and club tentacles lashing out.
+			var sq = R["eel"]
+			var lum = [Color("#3aa0a8"), Color("#7ff0e0"), Color("#d0fff6"), Color.WHITE]
+			path([22, 36, 12, 30, 5, 22, 2, 15], 1.3, sq)
+			E(2, 13, 2.4, 3.0, sq, true)
+			path([24, 38, 14, 38, 7, 34, 3, 30], 1.2, sq)
+			E(3, 28, 2.2, 2.6, sq, true)
+			P([24, 26, 31, 4, 37, 1, 40, 8, 35, 30], sq, true)
+			P([31, 6, 25, 3, 33, 12], sq, true); P([38, 7, 46, 4, 39, 14], sq, true)
+			for sp in [[33, 12], [36, 18], [31, 22], [35, 25], [34, 7]]:
+				D(sp[0], sp[1], lum[1]); D(sp[0], sp[1] - 1, lum[2])
+			E(28, 31, 9, 6.5, sq, true)
+			E(23, 30, 4, 3.4, R["gold"], true)
+			Dr(23, 28, 1, 5, Color("#0a1416")); D(22, 29, Color.WHITE)
+			for tn in [[22, 36, 16, 42], [26, 37, 24, 43], [31, 37, 34, 43], [35, 35, 41, 41]]:
+				path([tn[0], tn[1], (tn[0] + tn[2]) / 2.0 + 2, (tn[1] + tn[3]) / 2.0, tn[2], tn[3]], 1.6, sq)
+			for su in [[8, 27], [5, 20], [12, 37], [8, 36], [18, 40], [37, 39]]:
+				D(su[0], su[1], R["cream"][3])
+			# the lagoon, waves cresting around it
+			for x in 48:
+				var top = 42 + int(round(1.6 * sin(x * 0.55) + 0.8 * sin(x * 1.3 + 1.0)))
+				for y in range(top, 48):
+					var c = R["water"][1] if y > top + 1 else R["water"][2]
+					if y == top: c = R["water"][3]
+					if y > top + 3: c = R["water"][0]
+					D(x, y, c)
+				if sin(x * 0.55) > 0.8:
+					D(x, top - 1, Color.WHITE); D(x - 1, top, Color.WHITE)
+			for sp in [[6, 39], [40, 37], [19, 40], [45, 40]]:
+				D(sp[0], sp[1], R["water"][3]); D(sp[0] + 1, sp[1] - 1, Color.WHITE)
+		"scaldmaw_hydra":
+			# Scaldmaw: a two-headed hydra rising from a boiling pool, one head of
+			# lagoon water and one of magma, steam pouring off its basalt coils.
+			var wat = R["water"]
+			var mag = R["lizard"]
+			var basalt = [Color("#14181c"), Color("#2a3238"), Color("#46525a"), Color("#6a7a84")]
+			var steam = [Color("#8a98a4"), Color("#c4ced6"), Color("#e8eff4"), Color.WHITE]
+			# far neck and the water head, behind
+			path([31, 34, 36, 24, 35, 13, 31, 7], 2.6, wat, true)
+			for fn in [[37, 24, 41, 21], [37, 17, 41, 13], [35, 10, 38, 5]]:
+				P([fn[0], fn[1] - 1.5, fn[2], fn[3], fn[0], fn[1] + 1.5], R["ice"], true)
+			E(27, 7, 6, 3.4, wat, true)
+			P([24, 9, 16, 10, 19, 12, 27, 11], wat, true)
+			for tw in [[18, 9], [21, 9], [24, 9]]:
+				D(tw[0], tw[1], R["bone"][3])
+			Dr(26, 5, 2, 1, SOCKET); D(26, 5, Color("#bff6ff"))
+			# water spitting from its jaws
+			for dr in [[15, 10], [13, 12], [14, 14], [11, 13], [12, 16]]:
+				D(dr[0], dr[1], wat[3])
+			# the basalt coils, cracked with magma and wet on top
+			E(29, 38, 13, 6.5, basalt, true)
+			E(20, 40, 8, 4.5, basalt, true)
+			path([18, 39, 23, 37, 28, 40, 34, 37, 39, 39], 0.5, R["fire"])
+			path([24, 34, 29, 33, 35, 34], 0.5, [wat[2], wat[2], wat[3], wat[3]])
+			# near neck and the magma head, in front
+			path([22, 38, 17, 31, 15, 24, 13, 19], 2.8, mag, true)
+			for sp in [[19, 33, 22, 31], [16, 27, 19, 25], [15, 22, 17, 19]]:
+				P([sp[0], sp[1] + 1.5, sp[2], sp[3], sp[0], sp[1] - 1.5], R["fire"], true)
+			E(9, 20, 6, 3.6, mag, true)
+			P([7, 22, 1, 23, 3, 26, 11, 25], mag, true)
+			for tw in [[3, 22], [6, 22], [5, 24]]:
+				D(tw[0], tw[1], R["bone"][3])
+			Dr(8, 18, 2, 1, SOCKET); D(8, 18, Color("#ffd447"))
+			for cr in [[11, 17, 13, 13], [14, 18, 17, 14]]:
+				Ln(cr[0], cr[1], cr[2], cr[3], 0.6, R["fire"])
+			# embers spat from its jaws
+			for em in [[1, 27, 3], [3, 29, 2], [0, 30, 3]]:
+				D(em[0], em[1], R["fire"][em[2]])
+			# the boiling pool
+			for x in 48:
+				var top = 43 + int(round(1.2 * sin(x * 0.6) + 0.6 * sin(x * 1.4 + 2.0)))
+				for y in range(top, 48):
+					var c = wat[1] if y > top + 1 else wat[2]
+					if y == top: c = wat[3]
+					if y > top + 3: c = wat[0]
+					D(x, y, c)
+			for bb in [[5, 44], [14, 45], [41, 44], [45, 46], [34, 46]]:
+				D(bb[0], bb[1], R["fire"][2]); D(bb[0] + 1, bb[1] - 1, R["fire"][3])
+			# steam rising
+			for st in [[40, 30, 3.0, 2.2], [43, 26, 2.2, 1.8], [42, 9, 2.6, 2.0], [45, 5, 1.8, 1.4], [3, 6, 2.4, 1.8], [6, 3, 1.6, 1.3]]:
+				E(st[0], st[1], st[2], st[3], steam)
+		"rimeshade_wight":
+			# Rimeshade: a hooded barrow wight in a tattered shadow robe hemmed with
+			# frost, crowned with ice antlers and bearing a frozen glaive.
+			var ice = R["ice"]
+			var robe = R["dark"]
+			var void_r = [Color("#04020a"), Color("#08050c"), Color("#120a20"), Color("#1c1030")]
+			var frost = [ice[2], ice[2], ice[3], ice[3]]
+			E(24, 45, 13, 2, [R["shade"][0], R["shade"][0], R["shade"][1], R["shade"][1]])
+			E(24, 45, 8, 1.1, [ice[1], ice[1], ice[2], ice[2]])
+			# the glaive, held behind
+			Ln(38, 6, 37, 44, 0.8, R["shade"])
+			P([38, 7, 35, 3, 39, -1, 44, 2, 43, 6], ice, true)
+			Ln(38, 1, 42, 5, 0.35, [Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE])
+			# far arm gripping it
+			path([31, 20, 35, 25, 37, 22], 1.6, robe, true)
+			E(37, 22, 1.8, 1.8, ice, true)
+			# tattered robe
+			P([17, 15, 31, 15, 36, 28, 35, 39, 32, 36, 29, 43, 26, 37, 22, 42, 19, 36, 15, 41, 13, 32], robe, true)
+			for fl in [[22, 18, 20, 38], [28, 18, 30, 38], [25, 20, 25, 36]]:
+				Ln(fl[0], fl[1], fl[2], fl[3], 0.35, [robe[0], robe[0], robe[0], robe[0]])
+			# frost on the hem
+			path([14, 39, 15, 37, 19, 35, 22, 40, 26, 36, 29, 41, 32, 35, 34, 37], 0.6, frost)
+			for ic in [[15, 41, 15, 44], [22, 42, 22, 45], [29, 43, 29, 46], [35, 39, 35, 41]]:
+				Ln(ic[0], ic[1], ic[2], ic[3], 0.4, ice)
+			# the hood, its face a void with two cold eyes
+			E(22, 14, 8, 7.5, R["shade"], true)
+			P([20, 7, 27, 4, 29, 11], R["shade"], true)
+			E(19.5, 15.5, 4.6, 4.8, void_r, true)
+			for ey in [[17, 14], [21, 14]]:
+				Dr(ey[0], ey[1], 2, 1, ice[2]); D(ey[0], ey[1], Color.WHITE)
+			D(19, 18, ice[1]); D(18, 19, ice[0])
+			# ice antler crown
+			for sh in [[18, 8, 11, 2, 1.8], [24, 7, 30, 0, 1.8], [15, 5, 12, -1, 1.2], [27, 3, 33, 4, 1.2], [21, 7, 21, 1, 1.3]]:
+				var a = Vector2(sh[0], sh[1])
+				var b = Vector2(sh[2], sh[3])
+				var n = (b - a).orthogonal().normalized() * sh[4]
+				P([a.x + n.x, a.y + n.y, b.x, b.y, a.x - n.x, a.y - n.y], [ice[1], ice[2], ice[3], Color.WHITE], true)
+			# near arm reaching forward to an icy claw
+			path([17, 21, 11, 25, 6, 24], 1.8, robe, true)
+			for c in [[6, 24, 1, 21], [6, 24, 1, 25], [6, 25, 3, 29]]:
+				Ln(c[0], c[1], c[2], c[3], 0.6, ice, true)
+			# frost shards and shadow motes drifting around it
+			for m in [[4, 12], [44, 16], [42, 32], [6, 36], [10, 7]]:
+				D(m[0], m[1], Color.WHITE); D(m[0] + 1, m[1], ice[3]); D(m[0], m[1] + 1, ice[3])
+			for m in [[3, 30], [40, 40], [33, 9]]:
+				D(m[0], m[1], robe[3]); D(m[0] + 1, m[1], robe[2])
 	outline()
-
-# Wild twigs: the troop art mirrored to face left, darker, with red eyes.
-func wildify(src: Image) -> Image:
-	var out = Image.create(32, 32, false, Image.FORMAT_RGBA8)
-	for y in 32:
-		for x in 32:
-			var c = src.get_pixel(31 - x, y)
-			if c.a < 0.5:
-				continue
-			if c.is_equal_approx(GLOW) or c.is_equal_approx(Color("#ffb347")) or c.is_equal_approx(Color("#9fe8ff")) or c.is_equal_approx(Color("#c08cff")):
-				c = Color("#ff3b2f")
-			else:
-				c = c.darkened(0.12).lerp(Color(c.get_luminance(), c.get_luminance(), c.get_luminance()), 0.15)
-				c.a = 1.0
-			out.set_pixel(x, y, c)
-	return out
 
 func make(kind: String, name: String) -> Image:
 	W = 48 if kind == "boss" else 32
@@ -585,7 +932,7 @@ func make(kind: String, name: String) -> Image:
 # params.save_dir: write every sprite as a PNG there. Returns a contact sheet.
 func run(api, image, project, params):
 	var dir: String = params.get("save_dir", "")
-	var sheet = Image.create(8 * 50, 5 * 50, false, Image.FORMAT_RGBA8)
+	var sheet = Image.create(maxi(8, BOSSES.size()) * 50, 5 * 50, false, Image.FORMAT_RGBA8)
 	var i = 0
 	var troop_imgs = {}
 	for n in TROOPS:
@@ -595,7 +942,7 @@ func run(api, image, project, params):
 		sheet.blit_rect(im, Rect2i(0, 0, 32, 32), Vector2i((i % 8) * 50 + 8, (i / 8) * 50 + 8))
 		i += 1
 	for n in ["vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]:
-		var im = wildify(troop_imgs[n])
+		var im = make("enemy", "wild_" + n)
 		if dir != "": im.save_png(dir + "enemy_wild_%s.png" % n)
 		sheet.blit_rect(im, Rect2i(0, 0, 32, 32), Vector2i((i % 8) * 50 + 8, (i / 8) * 50 + 8))
 		i += 1

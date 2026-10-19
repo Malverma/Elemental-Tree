@@ -12,6 +12,11 @@ const PIXEL := 4.0
 
 var sim: BattleSim
 var speed := 1.0
+## Screen space the battle view's controls cover at the top; the fight fits below.
+var inset_top := 0.0:
+	set(v):
+		inset_top = v
+		queue_redraw()
 var _grounds := {}
 var paused := false
 var _done := false
@@ -46,23 +51,49 @@ func _ground(element: String) -> CanvasTexture:
 	return _grounds[element]
 
 
+# The battle area in screen space: VIEW fitted below the controls, centred.
+func _view_xf() -> Array:
+	var avail := Vector2(size.x, maxf(1.0, size.y - inset_top - 12.0))
+	var s := minf(avail.x / VIEW.size.x, avail.y / VIEW.size.y)
+	var origin := Vector2((size.x - VIEW.size.x * s) / 2.0, inset_top + (avail.y - VIEW.size.y * s) / 2.0)
+	return [origin, s]
+
+
+# A land with its own painted battlefield (assets/pixel/battle_<land>.png).
+func _backdrop() -> Texture2D:
+	if sim.expedition or not UI.is_pixel("battle_" + sim.level_id):
+		return null
+	return UI.crisp("battle_" + sim.level_id)
+
+
 func _draw() -> void:
-	var s := size.x / VIEW.size.x
-	draw_set_transform(-VIEW.position * s, 0.0, Vector2(s, s))
+	var xf := _view_xf()
+	var origin: Vector2 = xf[0]
+	var s: float = xf[1]
 	var x0 := VIEW.position.x
 	var w := VIEW.size.x
 	var h := VIEW.size.y
 	var tint: Color = GameData.BIOME_COLORS[sim.element()]
 
-	# Pixel ground of the land's element, a shaded enemy half, and worn lane paths.
-	var px_size := size / PIXEL
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(PIXEL, PIXEL))
-	draw_texture_rect(_ground(sim.element()), Rect2(Vector2.ZERO, px_size), true)
-	draw_rect(Rect2(0, 0, px_size.x, floorf(px_size.y / 2.0)), Color(tint.darkened(0.6), 0.18))
+	# The ground fills the whole screen: a land's painted battlefield, or its element's tiles.
+	var bg := _backdrop()
+	if bg:
+		var bs := maxf(size.x / bg.get_width(), size.y / bg.get_height())
+		var bsize := Vector2(bg.get_width(), bg.get_height()) * bs
+		draw_texture_rect(bg, Rect2((size - bsize) / 2.0, bsize), false)
+	else:
+		var px_size := size / PIXEL
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(PIXEL, PIXEL))
+		draw_texture_rect(_ground(sim.element()), Rect2(Vector2.ZERO, px_size), true)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# The enemy side shades softly toward the top, and the lanes are worn into the grass.
+	var mid := origin.y + h * s / 2.0
+	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(size.x, 0), Vector2(size.x, mid), Vector2(0, mid)]),
+		PackedColorArray([Color(tint.darkened(0.6), 0.22), Color(tint.darkened(0.6), 0.22), Color(tint.darkened(0.6), 0.0), Color(tint.darkened(0.6), 0.0)]))
 	for x in BattleSim.LANE_X:
-		var lx := floorf((x - x0) * s / PIXEL)
-		draw_rect(Rect2(lx - 1, 0, 3, px_size.y), Color(0.2, 0.13, 0.06, 0.18))
-	draw_set_transform(-VIEW.position * s, 0.0, Vector2(s, s))
+		var lx := floorf((origin.x + (x - x0) * s) / PIXEL) * PIXEL
+		draw_rect(Rect2(lx - PIXEL, origin.y, PIXEL * 3.0, h * s), Color(0.2, 0.13, 0.06, 0.14))
+	draw_set_transform(origin - VIEW.position * s, 0.0, Vector2(s, s))
 
 	# Units, back to front so lower units overlap higher ones.
 	var units: Array = []
@@ -75,9 +106,9 @@ func _draw() -> void:
 		var el: String = u.def.get("element", "")
 		# Elemental troops stand on a glowing ring of their element's colour.
 		if u.side == "ally" and el != "":
-			draw_set_transform(-VIEW.position * s + u.pos * s + Vector2(0, sz * 0.38) * s, 0.0, Vector2(s * 1.6, s * 0.6))
+			draw_set_transform(origin - VIEW.position * s + u.pos * s + Vector2(0, sz * 0.38) * s, 0.0, Vector2(s * 1.6, s * 0.6))
 			draw_circle(Vector2.ZERO, sz * 0.25, Color(GameData.BIOME_COLORS[el], 0.55))
-			draw_set_transform(-VIEW.position * s, 0.0, Vector2(s, s))
+			draw_set_transform(origin - VIEW.position * s, 0.0, Vector2(s, s))
 		var tint_u := Color.WHITE
 		if u.flash > 0.0:
 			tint_u = Color(1.8, 1.8, 1.8)

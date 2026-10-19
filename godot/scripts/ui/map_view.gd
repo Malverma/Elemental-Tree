@@ -1,16 +1,19 @@
 extends Control
 ## World map, full screen. Tap a land, the Home Grove or a dungeon to select it;
-## the card at the bottom has its main action, and the pull-up sheet the details.
+## the card at the bottom has its main action and Details, which pops out
+## everything about it (as does tapping the selected spot again).
+
+const InfoPopup := preload("res://scripts/ui/info_popup.gd")
 
 var main: Control
 var _scene: MapScene
 var _margin: MarginContainer
-var _reach: Label
 var _dungeon_timer: Label
 var _card_row: HBoxContainer
 var _insets := Vector2.ZERO
+var _scene_key := ""
 var _stored: Label
-var _sheet_stored: Label  # the stored count in the details sheet
+var _sheet_stored: Label  # the stored count in the details pop-out
 
 
 func _init(p_main: Control) -> void:
@@ -18,12 +21,7 @@ func _init(p_main: Control) -> void:
 
 
 func _ready() -> void:
-	_scene = MapScene.new(main.ui["selected_level"])
-	_scene.set_anchors_preset(PRESET_FULL_RECT)
-	_scene.level_selected.connect(func(id: String) -> void:
-		main.ui["selected_level"] = id
-		main.render())
-	add_child(_scene)
+	_set_scene()
 
 	_margin = MarginContainer.new()
 	_margin.set_anchors_preset(PRESET_FULL_RECT)
@@ -32,9 +30,6 @@ func _ready() -> void:
 	var col := UI.vbox(2)
 	col.mouse_filter = MOUSE_FILTER_IGNORE
 	_margin.add_child(col)
-	_reach = UI.label("", "SceneSmall")
-	_reach.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(_reach)
 	_dungeon_timer = UI.label("", "SceneSmall")
 	_dungeon_timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(_dungeon_timer)
@@ -47,45 +42,86 @@ func _ready() -> void:
 	_card_row.mouse_filter = MOUSE_FILTER_IGNORE
 	col.add_child(_card_row)
 	_card_row.resized.connect(_fit_map)
-	_reach.resized.connect(_fit_map)
 	refresh()
 
 
+# The map art is built once from the game state; it's rebuilt when what it
+# shows changes (dungeons come and go, lands are conquered, roots reach farther).
+func _set_scene() -> void:
+	if _scene:
+		_scene.queue_free()
+	_scene = MapScene.new(main.ui["selected_level"])
+	_scene.set_anchors_preset(PRESET_FULL_RECT)
+	_scene.level_selected.connect(func(id: String) -> void:
+		if id == main.ui["selected_level"]:
+			open_info()
+			return
+		main.ui["selected_level"] = id
+		main.render())
+	add_child(_scene)
+	move_child(_scene, 0)
+	_scene_key = _map_state()
+	_fit_map()
+
+
+func _map_state() -> String:
+	var parts := [str(Game.reach())]
+	for d in Game.state["dungeons"]:
+		parts.append("d%d" % d["id"])
+	for id in GameData.LEVEL_ORDER:
+		if Game.level_state(id)["conquered"]:
+			parts.append(id)
+	return ",".join(parts)
+
+
 ## Keeps the overlay clear of the shell's top bar and page indicator; the map
-## itself fits in the space between them.
+## itself runs under both, to the edges of the screen.
 func apply_insets(top: float, bottom: float) -> void:
 	_margin.add_theme_constant_override("margin_top", int(top) + 4)
-	_margin.add_theme_constant_override("margin_bottom", int(bottom) + 8)
+	_margin.add_theme_constant_override("margin_bottom", int(bottom) + 4)
 	_margin.add_theme_constant_override("margin_left", 16)
 	_margin.add_theme_constant_override("margin_right", 16)
 	_insets = Vector2(top, bottom)
 	_fit_map()
 
 
-# The map fits between the hint at the top and the card at the bottom, so no land hides behind them.
+# The map runs under both bars, the page bar floating over it at the bottom;
+# lands sit clear of the top bar and the card (see GameData.MAP_SAFE_TOP/BOTTOM).
 func _fit_map() -> void:
-	_scene.set_insets(_insets.x + 4 + _reach.size.y, _insets.y + 12 + _card_row.size.y)
+	if not _card_row:
+		return  # still being built
+	_scene.set_insets(0, 0)
 
 
 ## Updates in place after a state change (the shell calls this instead of rebuilding).
 func refresh() -> void:
+	if _map_state() != _scene_key:
+		_set_scene()
 	var id: String = main.ui["selected_level"]
 	if id.begins_with("dungeon_") and Game.dungeon(id).is_empty():
 		id = "grove"  # a cleared dungeon crumbles
 		main.ui["selected_level"] = id
 	_scene.set_selected(id)
-	_reach.text = "Roots reach %d" % Game.reach()
 	_build_card(id)
 	live()
 
 
-func sheet_title() -> String:
-	return "Details"
+# Collects a land's stored power and floats "+amount" up from the land in each
+# of its elements' colours.
+func _collect_land(id: String) -> void:
+	var amount := floori(Game.level_state(id)["stored"])
+	if not Game.collect_level(id)["ok"]:
+		return
+	var at := _scene.design_to_global(MapScene.to_art(GameData.LEVELS[id]["pos"]) + MapScene.LAND_PLATE)
+	var els: Array = GameData.LEVELS[id]["elements"]
+	for i in els.size():
+		var off := Vector2((i - (els.size() - 1) / 2.0) * 130.0, i * 34.0)
+		main.pop_text("+%d %s" % [amount, els[i]], at + off, GameData.BIOME_COLORS[els[i]])
 
 
-## Everything about the selected spot, shown in the pull-up sheet.
-func build_sheet() -> Control:
-	return _level_info(main.ui["selected_level"])
+## Pops out everything about the selected spot.
+func open_info() -> void:
+	main.open_popup(InfoPopup.new(func() -> Control: return _level_info(main.ui["selected_level"])))
 
 
 # A floating card for the selection: its name, how it stands, and what you can do there.
@@ -124,7 +160,7 @@ func _build_card(id: String) -> void:
 			status = "%s · Reach %d" % [" + ".join(l["elements"].map(UI.capitalize)), l["distance"]]
 			if ls["conquered"]:
 				status += " · Conquered"
-				buttons.append(UI.button("Collect", Game.collect_level.bind(id)))
+				buttons.append(UI.button("Collect", _collect_land.bind(id)))
 			elif not Game.can_reach(id):
 				status += " · Out of reach"
 			var enter := Game.can_enter(id)
@@ -136,7 +172,13 @@ func _build_card(id: String) -> void:
 	var row := UI.hbox(12)
 	var text := UI.vbox(2)
 	text.size_flags_horizontal = SIZE_EXPAND_FILL
-	text.add_child(UI.label(title, "Scene"))
+	var title_row := UI.hbox(8)
+	title_row.add_child(UI.label(title, "Scene"))
+	var details := UI.button("Details ›", open_info, "FlatButton")
+	details.add_theme_font_size_override("font_size", 20)
+	details.add_theme_color_override("font_color", UI.ROOT_GLOW)
+	title_row.add_child(details)
+	text.add_child(title_row)
 	var sub := UI.label(status, "SceneSmall", true)
 	text.add_child(sub)
 	if GameData.LEVELS.has(id) and Game.level_state(id)["conquered"]:
@@ -257,7 +299,7 @@ func _level_info(id: String) -> Control:
 		row.add_child(_sheet_stored)
 		row.add_child(UI.label("/ %d" % l["daily_yield"]))
 		row.add_child(UI.spacer())
-		row.add_child(UI.button("Collect", Game.collect_level.bind(id)))
+		row.add_child(UI.button("Collect", _collect_land.bind(id)))
 		box.add_child(row)
 
 	var enter := Game.can_enter(id)
@@ -328,10 +370,11 @@ func _dungeon_info(id: String, d: Dictionary) -> Control:
 	potions.add_child(UI.icon(GameData.ITEMS["thorn_draught"]["img"], 28))
 	box.add_child(potions)
 	var seeds := UI.hbox(6)
-	seeds.add_child(UI.label("• %d garden seed%s" % [n, "" if n == 1 else "s"]))
+	if Game.garden_unlocked():
+		seeds.add_child(UI.label("• %d garden seed%s" % [n, "" if n == 1 else "s"]))
+	else:
+		seeds.add_child(UI.label("• Rarely, a garden seed"))
 	seeds.add_child(UI.icon(GameData.SEEDS[el]["img"], 32))
-	if not Game.garden_unlocked():
-		seeds.add_child(UI.label("(after the tree's first prestige)", "Hint"))
 	box.add_child(seeds)
 
 	var enter := Game.can_enter_dungeon(id)

@@ -64,6 +64,17 @@ func _init() -> void:
 		["sunny_meadow", ["soldier", "soldier", "soldier"]],
 		["sunny_meadow", ["soldier", "soldier", "spearman"]],
 		["sunny_meadow", ["soldier", "soldier", "spearman", "archer"]],
+		# Growth is gated: the land at reach N must be cleared with the N + 2
+		# formation slots a level-N tree has, so these squads must be able to win.
+		["sunny_meadow", ["soldier", "archer", "archer"]],
+		["sunny_meadow", ["guard", "soldier", "archer"]],
+		["whispering_spring", ["soldier", "soldier", "archer", "archer"]],
+		["whispering_spring", ["guard", "spearman", "archer", "archer"]],
+		["whispering_spring", ["soldier", "guard", "spearman", "spearman"]],
+		["whispering_spring", ["guard", "vine_lasher", "archer:nature", "archer:nature"]],
+		["ember_vent", ["soldier:water", "guard:water", "spearman", "tide_caller", "archer:water"]],
+		["frostbite_hollow", ["ember_sprout", "ember_sprout", "guard", "spearman", "archer:fire", "archer:fire"]],
+		["gloomroot_cavern", ["vine_lasher", "soldier:nature", "guard:nature", "spearman", "archer:nature", "archer", "archer"]],
 		["whispering_spring", ["soldier", "soldier", "spearman", "archer", "archer"]],
 		["whispering_spring", ["soldier", "soldier", "soldier", "spearman", "spearman", "archer"]],
 		["whispering_spring", ["soldier:dark", "soldier", "spearman", "archer", "archer"]],

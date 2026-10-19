@@ -29,20 +29,22 @@ func _init(p_main: Control, p_sim: BattleSim) -> void:
 
 
 func _ready() -> void:
-	var dim := ColorRect.new()
-	dim.color = Color(0.08, 0.05, 0.03, 0.85)
-	dim.set_anchors_preset(PRESET_FULL_RECT)
-	add_child(dim)
+	# The battlefield fills the screen; the title and controls float over it.
+	_canvas = BattleCanvas.new(sim)
+	_canvas.set_anchors_preset(PRESET_FULL_RECT)
+	_canvas.finished.connect(_show_result)
+	add_child(_canvas)
 
 	var margin := MarginContainer.new()
-	margin.set_anchors_preset(PRESET_FULL_RECT)
-	for side in ["left", "right", "top", "bottom"]:
+	margin.set_anchors_preset(PRESET_TOP_WIDE)
+	for side in ["left", "right", "top"]:
 		margin.add_theme_constant_override("margin_" + side, 12)
+	margin.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(margin)
-	var col := UI.vbox(10)
-	var frame := UI.panel(col)
-	frame.size_flags_vertical = SIZE_EXPAND_FILL
-	margin.add_child(frame)
+	var col := UI.vbox(8)
+	var hud := UI.panel(col, "Pill")
+	margin.add_child(hud)
+	margin.resized.connect(func() -> void: _canvas.inset_top = margin.size.y + 6.0)
 
 	var head := UI.hbox(10)
 	_element_icon = UI.icon("icon_" + sim.element(), 34)
@@ -51,14 +53,15 @@ func _ready() -> void:
 	if not sim.expedition:
 		for el in sim.level["elements"].slice(1):
 			head.add_child(UI.icon("icon_" + el, 34))
-	_title = UI.label(sim.level.get("name", ""), "Title")
+	_title = UI.label(sim.level.get("name", ""), "SceneTitle")
+	_title.add_theme_font_size_override("font_size", 28)
 	head.add_child(_title)
 	head.add_child(UI.spacer())
-	_wave = UI.label("", "Muted")
+	_wave = UI.label("", "Scene")
 	head.add_child(_wave)
 	col.add_child(head)
 	if sim.expedition:
-		_loot = UI.label("", "Small")
+		_loot = UI.label("", "SceneSmall")
 		col.add_child(_loot)
 	_buffs = UI.hbox(8)
 	_buffs.visible = false
@@ -76,14 +79,6 @@ func _ready() -> void:
 	_controls.add_child(UI.spacer())
 	_controls.add_child(UI.button("Retreat", _confirm_retreat, "DangerButton"))
 	col.add_child(_controls)
-
-	var aspect := AspectRatioContainer.new()
-	aspect.ratio = BattleCanvas.VIEW.size.x / BattleCanvas.VIEW.size.y
-	aspect.size_flags_vertical = SIZE_EXPAND_FILL
-	_canvas = BattleCanvas.new(sim)
-	_canvas.finished.connect(_show_result)
-	aspect.add_child(_canvas)
-	col.add_child(aspect)
 
 
 func _process(_delta: float) -> void:
@@ -161,7 +156,15 @@ static func _loot_text(b: BattleSim) -> String:
 	for id in GameData.SEED_ORDER:
 		if seeds.get(id, 0) > 0:
 			parts.append("%d× %s" % [seeds[id], GameData.SEEDS[id]["name"]])
-	return ", ".join(parts)
+	var text := ", ".join(parts)
+	if not seeds.is_empty() and not Game.garden_unlocked():
+		text += " (seeds need the Garden: prestige the tree to unlock it)"
+	return text
+
+
+## Where a found seed goes: the Garden, which opens at the tree's first prestige.
+static func _seed_note() -> String:
+	return "plant it in the Garden" if Game.garden_unlocked() else "prestige the tree to unlock the Garden"
 
 
 func _centered(panel: Control) -> Control:
@@ -264,8 +267,6 @@ func _show_result() -> void:
 		c.add_theme_color_override("font_color", UI.ACCENT)
 		box.add_child(c)
 	var growth := "+%d growth" % res["xp"]
-	if res["xp_boost"] > 0.0:
-		growth += " (Growth Tonic +%d%%)" % roundi(res["xp_boost"] * 100)
 	if res["level_ups"] > 0:
 		growth += " · Tree reached level %d!" % res["new_level"]
 	box.add_child(UI.label(growth, "", true))
@@ -273,10 +274,13 @@ func _show_result() -> void:
 		box.add_child(UI.label("+%d sap" % res["sap"]))
 	if res["power"] > 0:
 		var pw := UI.hbox(6)
-		pw.add_child(UI.label("+%d" % res["power"]))
+		pw.add_child(UI.label("%d" % res["power"] if res["first_clear"] else "+%d" % res["power"]))
 		for el in res["elements"]:
 			pw.add_child(UI.icon("icon_" + el, 26))
-		pw.add_child(UI.label("%s power%s" % [GameData.elements_text(sim.level_id), " (a full day's yield)" if res["first_clear"] else " (3 hours' yield)"], "", true))
+		if res["first_clear"]:
+			pw.add_child(UI.label("%s power, a full day's yield, is ready to collect at the land on the World Map." % GameData.elements_text(sim.level_id), "", true))
+		else:
+			pw.add_child(UI.label("%s power (3 hours' yield)" % GameData.elements_text(sim.level_id), "", true))
 		box.add_child(pw)
 	box.add_child(UI.label("Waves cleared: %d / %d" % [sim.waves_cleared, sim.level["waves"].size()]))
 	if res["lost"] > 0:
@@ -312,7 +316,7 @@ func _show_dungeon_result() -> void:
 			if res["seeds"].get(id, 0) > 0:
 				var row := UI.hbox(8)
 				row.add_child(UI.icon(GameData.SEEDS[id]["img"], 32))
-				row.add_child(UI.label("%d× %s (plant it in the Garden)" % [res["seeds"][id], GameData.SEEDS[id]["name"]]))
+				row.add_child(UI.label("%d× %s (%s)" % [res["seeds"][id], GameData.SEEDS[id]["name"], _seed_note()], "", true))
 				box.add_child(row)
 	else:
 		box.add_child(UI.label("The dungeon still stands. Try again with a stronger squad.", "", true))
@@ -360,7 +364,7 @@ func _show_expedition_result() -> void:
 			if res["seeds"].get(id, 0) > 0:
 				var row := UI.hbox(8)
 				row.add_child(UI.icon(GameData.SEEDS[id]["img"], 32))
-				row.add_child(UI.label("%d× %s (plant it in the Garden)" % [res["seeds"][id], GameData.SEEDS[id]["name"]]))
+				row.add_child(UI.label("%d× %s (%s)" % [res["seeds"][id], GameData.SEEDS[id]["name"], _seed_note()], "", true))
 				box.add_child(row)
 	elif sim.loot_xp > 0:
 		var gone := UI.label("The squad didn't make it home. Lost loot: " + _loot_text(sim), "", true)

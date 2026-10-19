@@ -1,10 +1,14 @@
 class_name GroveScene
 extends PixelScene
 ## The Grove in pixel art: the tree on its hill under a drifting sky. The crown
-## sways in the wind, gusts pass now and then, and leaves drift down.
-## Tapping the leaves or the trunk emits `tapped` ("branches" or "trunk").
+## sways in the wind, gusts pass now and then, leaves drift down and birds
+## visit (see GroveBirds).
+## Tapping the leaves or the trunk emits `tapped` ("branches" or "trunk");
+## tapping a bird emits `bird_tapped`.
 
 signal tapped(global_pos: Vector2, part: String)
+## A visiting bird was tapped (and burst into feathers).
+signal bird_tapped(global_pos: Vector2)
 
 ## Top-left of the 176x200 tree art; its base (88, 194) stands on the hilltop at (90, 304).
 const TREE_POS := Vector2(2, 110)
@@ -25,17 +29,13 @@ var _leaves := []
 var _leaf_in := 8.0
 var _gust_in := 15.0
 var _gust := 0.0
+var _birds: GroveBirds
 
 
-## Which art stage a tree level shows: a sprout, a sapling, a young tree, a grown tree.
+## Which art stage a tree level shows: one per level, from a sprout at level 1
+## to the full Elemental Tree at level 10.
 static func stage_for(level: int) -> int:
-	if level >= 10:
-		return 3
-	if level >= 5:
-		return 2
-	if level >= 2:
-		return 1
-	return 0
+	return clampi(level, 1, GameData.MAX_LEVEL) - 1
 
 
 func _init(p_stage: int) -> void:
@@ -61,6 +61,9 @@ func _ready() -> void:
 	_crown_img = crown.texture.get_image()
 	_crown_box = Rect2(_crown_img.get_used_rect())
 	_crown_box.position += TREE_POS
+	# Birds perch on the crown and hop about behind the front grass.
+	_birds = GroveBirds.new(self)
+	world.add_child(_birds)
 	var grass := sprite("grass_front", Vector2(0, 380))
 	_grass_mat = wind(1.0, 1.8, 1.0)
 	grass.material = _grass_mat
@@ -132,6 +135,10 @@ func _fall(leaf: Dictionary, delta: float) -> void:
 
 
 func _tap(local: Vector2) -> void:
+	# Birds sit in front of the tree, so they catch the tap first.
+	if _birds.pop_at(to_design(local)):
+		bird_tapped.emit(get_global_transform() * local)
+		return
 	var p := to_design(local) - TREE_POS
 	var part := ""
 	if hits(_crown_img, p, 2):
@@ -141,7 +148,8 @@ func _tap(local: Vector2) -> void:
 	if part == "":
 		return
 	if part == "branches":
-		# A rustle, and sometimes a leaf shaken loose.
+		# A rustle that startles any birds, and sometimes a leaf shaken loose.
+		_birds.scare_tree()
 		_gust = maxf(_gust, 1.2)
 		create_tween().tween_property(self, "_gust", 0.0, 0.6)
 		if randf() < 0.06:

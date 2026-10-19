@@ -1,6 +1,7 @@
 extends Control
-## Inventory overlay: potions found on expeditions. Opened from the Grove, where
-## potions are readied for the next battle, or from a battle, where they work at once.
+## Inventory overlay: potions and seeds found on expeditions and in dungeons.
+## Opened from the top bar, where potions are readied for the next battle, or
+## from a battle, where they work at once (seeds are only listed outside battle).
 
 signal closed
 
@@ -18,6 +19,10 @@ func _ready() -> void:
 	var dim := ColorRect.new()
 	dim.color = Color(0.08, 0.05, 0.03, 0.6)
 	dim.set_anchors_preset(PRESET_FULL_RECT)
+	# Tapping outside the panel closes it, like the Close button.
+	dim.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			close())
 	add_child(dim)
 
 	var box := UI.vbox(14)
@@ -35,8 +40,10 @@ func _ready() -> void:
 
 	var panel := UI.panel(box, "Result")
 	panel.custom_minimum_size.x = 600
+	panel.mouse_filter = MOUSE_FILTER_STOP
 	var center := CenterContainer.new()
 	center.set_anchors_preset(PRESET_FULL_RECT)
+	center.mouse_filter = MOUSE_FILTER_IGNORE
 	center.add_child(panel)
 	add_child(center)
 
@@ -45,6 +52,8 @@ func _ready() -> void:
 
 
 func close() -> void:
+	if is_queued_for_deletion():
+		return
 	closed.emit()
 	queue_free()
 
@@ -58,6 +67,34 @@ func _refresh() -> void:
 		_list.add_child(_row(id))
 	if total == 0 and Game.state["queued_potions"].is_empty():
 		_list.add_child(UI.label("No potions yet. Expeditions from the Home Grove (World Map) turn them up.", "Small", true))
+	if not sim and not Game.state["seeds"].is_empty():
+		_list.add_child(UI.label("Seeds", "Heading"))
+		for id in GameData.SEED_ORDER:
+			if Game.state["seeds"].get(id, 0) > 0:
+				_list.add_child(_seed_row(id))
+
+
+# A seed waits for the Garden, which only opens at the tree's first prestige.
+func _seed_row(id: String) -> Control:
+	var s: Dictionary = GameData.SEEDS[id]
+	var row := UI.hbox(12)
+	row.add_child(UI.icon(s["img"], 56))
+	var text := UI.vbox(2)
+	text.size_flags_horizontal = SIZE_EXPAND_FILL
+	var title := UI.hbox(8)
+	title.add_child(UI.label(s["name"], "Heading"))
+	title.add_child(UI.label("×%d" % Game.state["seeds"][id], "Muted"))
+	text.add_child(title)
+	var article := "an" if s["plant"][0] in "AEIOU" else "a"
+	text.add_child(UI.label("Grows %s %s: %s" % [article, s["plant"], GameData.seed_yield_text(id)], "Small", true))
+	if Game.garden_unlocked():
+		text.add_child(UI.label("Plant it in the Garden.", "Small", true))
+	else:
+		var lock := UI.label("Needs the Garden: prestige the tree to unlock it.", "Small", true)
+		lock.add_theme_color_override("font_color", UI.DANGER)
+		text.add_child(lock)
+	row.add_child(text)
+	return UI.panel(row, "Card")
 
 
 func _row(id: String) -> Control:

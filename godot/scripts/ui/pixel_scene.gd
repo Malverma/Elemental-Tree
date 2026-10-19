@@ -4,7 +4,9 @@ extends Control
 ## (`design`, in art pixels) inside `world`, scaled up with nearest filtering.
 ## By default the scene is anchored to the bottom of the screen; on short
 ## screens the top of the sky is cropped, and at least MIN_ROWS rows always fit.
-## With `contain`, the whole design fits between the shell's bars instead.
+## With `contain`, the whole design fits between the shell's bars instead,
+## growing up to `fill_crop` past that (cropping the sides or ends) to close
+## the bands a near-fit leaves.
 
 const DESIGN := Vector2(180, 400)
 const MIN_ROWS := 320.0
@@ -13,6 +15,7 @@ const WIND := preload("res://shaders/wind.gdshader")
 ## Colours that fill any space beside the art on screens wider than it.
 var design := DESIGN
 var contain := false
+var fill_crop := 0.0
 var inset_top := 0.0
 var inset_bottom := 0.0
 var edge_sky := Color("#7fc3f0")
@@ -45,7 +48,9 @@ func _init() -> void:
 func _layout() -> void:
 	if contain:
 		var avail := Rect2(0, inset_top, size.x, maxf(1.0, size.y - inset_top - inset_bottom))
-		pixel_scale = minf(avail.size.x / design.x, avail.size.y / design.y)
+		var fit := minf(avail.size.x / design.x, avail.size.y / design.y)
+		var cover := maxf(avail.size.x / design.x, avail.size.y / design.y)
+		pixel_scale = minf(cover, fit * (1.0 + fill_crop))
 		origin = avail.position + (avail.size - design * pixel_scale) / 2.0
 	else:
 		pixel_scale = minf(maxf(size.x / design.x, size.y / design.y), size.y / MIN_ROWS)

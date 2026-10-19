@@ -8,7 +8,7 @@ const WOOD := [Color("#6e5032"), Color("#a07c4c"), Color("#b8945e"), Color("#d6b
 const MOSS := [Color("#2d4a1f"), Color("#4a6e2a"), Color("#78a040"), Color("#b2d36a")]
 const SAP := Color("#ffb347")
 const SAP_HI := Color("#fff0b0")
-const LIGHT := Vector2(90, 96)  # where the glowing roots light the hollow from
+const LIGHT := Vector2(90, 70)  # where the glowing roots light the hollow from
 
 func bayer(x, y) -> float:
 	var m = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
@@ -34,7 +34,7 @@ func light(x, y) -> float:
 	return clampf(1.0 - d / 170.0, 0.0, 1.0)
 
 func wall_edge(x) -> int:
-	return int(150 + 4 * sin(x * 0.11) + 2 * sin(x * 0.37 + 1.0))
+	return int(110 + 4 * sin(x * 0.11) + 2 * sin(x * 0.37 + 1.0))
 
 func root(pts: Array, w0: float, w1: float, tip_glow: bool):
 	var n = pts.size() / 2 - 1
@@ -147,7 +147,7 @@ func bg():
 	root([62, -4, 60, 18, 52, 38, 48, 62, 50, 84], 6.0, 1.4, true)
 	root([104, -4, 108, 22, 118, 44, 120, 70], 5.5, 1.2, true)
 	root([84, -4, 86, 16, 82, 30, 84, 48], 3.5, 1.0, true)
-	root([140, -4, 146, 30, 136, 56, 138, 94, 132, 112], 4.0, 1.0, true)
+	root([140, -4, 146, 30, 136, 56, 138, 78], 4.0, 1.0, true)
 	root([30, -4, 24, 26, 34, 52, 28, 78], 3.6, 1.0, true)
 	root([72, 12, 74, 30, 70, 40], 1.6, 0.6, false)
 	root([126, 20, 124, 36, 128, 48], 1.6, 0.6, false)
@@ -155,10 +155,10 @@ func bg():
 	# great roots framing the hollow down both sides to the floor
 	root([-6, 60, 8, 110, 6, 170, 16, 240, 10, 330, 18, 410], 9.0, 6.0, false)
 	root([186, 40, 172, 100, 176, 180, 164, 260, 172, 340, 164, 410], 9.0, 6.0, false)
-	root([10, 190, 26, 200, 32, 214], 2.4, 0.8, true)
-	root([168, 230, 154, 238, 150, 252], 2.4, 0.8, true)
+	root([10, 150, 26, 160, 32, 174], 2.4, 0.8, true)
+	root([168, 190, 154, 198, 150, 212], 2.4, 0.8, true)
 	# glowing mushrooms by the walls and in the corners
-	for mu in [[28, 160, Color("#6fe0d8"), 3], [34, 163, Color("#6fe0d8"), 2], [150, 158, Color("#ffb36b"), 3],
+	for mu in [[28, 120, Color("#6fe0d8"), 3], [34, 123, Color("#6fe0d8"), 2], [150, 118, Color("#ffb36b"), 3],
 			[26, 352, Color("#6fe0d8"), 4], [34, 356, Color("#6fe0d8"), 2], [152, 360, Color("#c890ff"), 4], [144, 364, Color("#c890ff"), 2],
 			[24, 276, Color("#ffb36b"), 2], [156, 300, Color("#6fe0d8"), 3]]:
 		mushroom(mu[0], mu[1], mu[2], mu[3])
@@ -166,7 +166,7 @@ func bg():
 	for i in 160:
 		var side = -1 if rng.randf() < 0.5 else 1
 		var x = 90 + side * rng.randi_range(58, 80)
-		var y = rng.randi_range(160, H - 1)
+		var y = rng.randi_range(120, H - 1)
 		if rng.randf() < 0.6:
 			put(x, y, MOSS[1]); put(x + 1, y, MOSS[2] if rng.randf() < 0.5 else MOSS[1])
 

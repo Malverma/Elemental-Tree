@@ -7,13 +7,14 @@ extends PixelScene
 
 signal level_selected(id: String)
 
-## One art pixel is this many map units (GameData.MAP_SIZE is 680x1000).
+## One art pixel is this many map units (GameData.MAP_SIZE is 680x1520).
 const UNIT := 4.0
 const PULSE_SPEED := 14.0  # art px / s
 const ROOT := Color("#5e3a20")
 const ROOT_LIGHT := Color("#a06a3a")
 const ROOT_FAINT := Color(0.23, 0.13, 0.07, 0.5)
 const GLOW := Color("#ffd447")
+const GLOW_RINGS := [1.0, 0.6, 0.25]  # opacity of each ring of the selection glow
 
 ## Where each kind of plate sits relative to its spot, and each plate sprite's centre.
 const LAND_PLATE := Vector2(0, -6)
@@ -23,7 +24,7 @@ const PLATES := {"map_plate": Vector2(15, 12), "map_plate_l": Vector2(15, 12), "
 	"map_plate_dungeon": Vector2(10, 9)}
 ## Dungeon looks, taken in turn: each new dungeon gets the next id, so a fresh
 ## spawn shows the next look while existing dungeons keep theirs.
-const DUNGEON_ARTS := ["dungeon", "dungeon_ruins", "dungeon_stump"]
+const DUNGEON_ARTS := ["dungeon", "dungeon_ruins", "dungeon_sunken", "dungeon_temple", "dungeon_mine"]
 ## Half the height of each kind of plate, for placing names under them.
 const LAND_HALF := 11.0
 const DUNGEON_HALF := 8.5
@@ -32,7 +33,17 @@ var selected: String
 var _paths := []  # [{"px": Array[Vector2i], "reached": bool, "phase": float}]
 var _roots: Node2D
 var _hl: Node2D
-var _sel_rect := Rect2()
+## The glow around the selected plate: rings of art pixels outward from its
+## dark rim, each fainter than the last.
+var _glow: Array = []
+## Conquered lands glow in their element as their stored power builds up:
+## faint from HUE_FROM full, strongest when full. id -> rings like _glow.
+const HUE_FROM := 0.25
+## Brighter than the biome colours, so each reads against its own terrain.
+const HUE_COLORS := {"nature": Color("#c8ff5a"), "water": Color("#3fb4ff"), "fire": Color("#ff7a2e"),
+	"ice": Color("#5fd0ff"), "dark": Color("#b77bff")}
+var _hue: Node2D
+var _hue_rings := {}
 var _labels: Control
 var _time := 0.0
 
@@ -50,6 +61,8 @@ func _init(p_selected: String) -> void:
 	selected = p_selected
 	design = GameData.MAP_SIZE / UNIT
 	contain = true
+	# Fill the screen down under the page bar, trimming a sliver off the sides.
+	fill_crop = 0.08
 	edge_sky = Color("#1f3a24")
 	edge_ground = Color("#1f3a24")
 
@@ -60,6 +73,15 @@ func _ready() -> void:
 	_roots = Node2D.new()
 	_roots.draw.connect(_draw_roots)
 	world.add_child(_roots)
+	# The glows sit under the plates, so they only show around their rims.
+	_hue = Node2D.new()
+	_hue.draw.connect(_draw_hue)
+	world.add_child(_hue)
+	for id in GameData.LEVEL_ORDER:
+		_hue_rings[id] = _rings_around(_plates_for(id))
+	_hl = Node2D.new()
+	_hl.draw.connect(_draw_selection)
+	world.add_child(_hl)
 
 	# Each spot stands on a plate tinted with its element, so it reads at a glance.
 	var g := to_art(GameData.GROVE)
@@ -80,8 +102,8 @@ func _ready() -> void:
 		else:
 			_plate("map_plate_l", p + LAND_PLATE, _tint(els[0], dim))
 			_plate("map_plate_r", p + LAND_PLATE, _tint(els[1], dim))
-		# A two-element land's tree has its crown split between the two elements.
-		_place("map_" + "_".join(els), p, Vector2(10, 16), Color.WHITE if dim == 1.0 else Color(0.7, 0.7, 0.75))
+		# Every land has its own tree.
+		_place("tree_" + id, p, Vector2(10, 16), Color.WHITE if dim == 1.0 else Color(0.7, 0.7, 0.75))
 		if Game.level_state(id)["conquered"]:
 			_place("map_flag", p + Vector2(10, -13), Vector2(1, 10), Color.WHITE)
 	for d in Game.state["dungeons"]:
@@ -90,9 +112,6 @@ func _ready() -> void:
 		_plate("map_plate_dungeon", at + DUNGEON_PLATE, _tint(d["element"], 1.0 if reached else 0.6))
 		_place(dungeon_art(d), at, Vector2(6, 9), Color.WHITE if reached else Color(0.7, 0.7, 0.75))
 
-	_hl = Node2D.new()
-	_hl.draw.connect(_draw_selection)
-	world.add_child(_hl)
 	set_selected(selected)
 
 	# Names are drawn smooth, in screen space, over the art.
@@ -143,46 +162,89 @@ func _build_paths() -> void:
 
 func set_selected(id: String) -> void:
 	selected = id
-	_sel_rect = Rect2()
-	if id == "grove":
-		_sel_rect = Rect2(to_art(GameData.GROVE) + GROVE_PLATE - Vector2(23, 13), Vector2(46, 26))
-	elif GameData.LEVELS.has(id):
-		var half := Vector2(17, 13)
-		_sel_rect = Rect2(to_art(GameData.LEVELS[id]["pos"]) + LAND_PLATE - half, half * 2.0)
-	else:
-		var d := Game.dungeon(id)
-		if not d.is_empty():
-			_sel_rect = Rect2(to_art(Vector2(d["x"], d["y"])) + DUNGEON_PLATE - Vector2(12, 11), Vector2(24, 22))
-	_sel_rect.position = _sel_rect.position.round()
+	_glow = _rings_around(_plates_for(id))
 	if _hl:
 		_hl.queue_redraw()
 
 
-# Pulsing gold corner brackets around the selected plate.
+# The plate sprites under a spot, as [plate sprite, centre].
+func _plates_for(id: String) -> Array:
+	var plates := []
+	if id == "grove":
+		var g := to_art(GameData.GROVE) + GROVE_PLATE
+		plates = [["map_plate_l", g], ["map_plate_r", g]]
+	elif GameData.LEVELS.has(id):
+		var p := to_art(GameData.LEVELS[id]["pos"]) + LAND_PLATE
+		plates = [["map_plate", p]] if GameData.LEVELS[id]["elements"].size() == 1 else [["map_plate_l", p], ["map_plate_r", p]]
+	else:
+		var d := Game.dungeon(id)
+		if not d.is_empty():
+			plates = [["map_plate_dungeon", to_art(Vector2(d["x"], d["y"])) + DUNGEON_PLATE]]
+	return plates
+
+
+# The rings of art pixels hugging the outside of the given plates, innermost first.
+func _rings_around(plates: Array) -> Array:
+	var rings := []
+	var taken := {}
+	for pl in plates:
+		var img: Image = UI.tex(pl[0]).get_image()
+		var origin := Vector2i((pl[1] - PLATES[pl[0]]).round())
+		for y in img.get_height():
+			for x in img.get_width():
+				if img.get_pixel(x, y).a > 0.5:
+					taken[origin + Vector2i(x, y)] = true
+	var edge: Array = taken.keys()
+	for ring in GLOW_RINGS.size():
+		var next := {}
+		for q in edge:
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					# The first ring hugs the rim all round; later ones round off the corners.
+					if ring > 0 and dx != 0 and dy != 0:
+						continue
+					var n: Vector2i = q + Vector2i(dx, dy)
+					if not taken.has(n):
+						next[n] = true
+		for n in next:
+			taken[n] = true
+		edge = next.keys()
+		rings.append(edge)
+	return rings
+
+
+# A pulsing gold glow around the selected plate's dark rim.
 func _draw_selection() -> void:
-	if _sel_rect.size == Vector2.ZERO:
-		return
-	var a := 0.7 + 0.3 * sin(_time * 4.5)
-	var r := _sel_rect
-	var corners := [[r.position, 1, 1], [Vector2(r.end.x - 1, r.position.y), -1, 1],
-		[Vector2(r.position.x, r.end.y - 1), 1, -1], [r.end - Vector2.ONE, -1, -1]]
-	for pass_i in 2:
-		for c in corners:
-			var p: Vector2 = c[0]
-			var sx: int = c[1]
-			var sy: int = c[2]
-			# Each corner is two 6x2 bars pointing inward along the edges.
-			var bars := [Rect2(minf(p.x, p.x + sx * 5), minf(p.y, p.y + sy), 6, 2),
-				Rect2(minf(p.x, p.x + sx), minf(p.y, p.y + sy * 5), 2, 6)]
-			for bar in bars:
-				if pass_i == 0:
-					_hl.draw_rect(bar.grow(1), Color(UI.NIGHT, a))
-				else:
-					_hl.draw_rect(bar, Color(GLOW, a))
+	var a := 0.8 + 0.2 * sin(_time * 4.5)
+	for ring in _glow.size():
+		for q in _glow[ring]:
+			_hl.draw_rect(Rect2(q, Vector2.ONE), Color(GLOW, a * GLOW_RINGS[ring]))
+
+
+# Each conquered land with power waiting glows in its element(s), a two-element
+# land split down the middle; the glow deepens as its store fills.
+func _draw_hue() -> void:
+	var pulse := 0.85 + 0.15 * sin(_time * 2.5)
+	for id in _hue_rings:
+		var ls := Game.level_state(id)
+		if not ls["conquered"]:
+			continue
+		var fill: float = ls["stored"] / maxf(1.0, GameData.LEVELS[id]["daily_yield"])
+		if fill < HUE_FROM:
+			continue
+		var strength := lerpf(0.3, 1.0, clampf((fill - HUE_FROM) / (1.0 - HUE_FROM), 0.0, 1.0)) * pulse
+		var els: Array = GameData.LEVELS[id]["elements"]
+		var mid := roundi(to_art(GameData.LEVELS[id]["pos"]).x + LAND_PLATE.x)
+		var rings: Array = _hue_rings[id]
+		for ring in rings.size():
+			for q in rings[ring]:
+				var el: String = els[0] if els.size() == 1 or q.x < mid else els[1]
+				_hue.draw_rect(Rect2(q, Vector2.ONE), Color(HUE_COLORS[el], strength * GLOW_RINGS[ring]))
 
 
 func _process(delta: float) -> void:
 	_time += delta
+	_hue.queue_redraw()
 	_roots.queue_redraw()
 	_hl.queue_redraw()
 	_labels.queue_redraw()  # follows the map when it's refitted between the bars

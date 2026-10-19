@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <path d="M32 51 C33 44 31 37 32 30" fill="none" stroke="#2B1D12" stroke-width="4.5" stroke-linecap="round"/>
-<path d="M32 51 C33 44 31 37 32 30" fill="none" stroke="#3E8E3A" stroke-width="2.5" stroke-linecap="round"/>
-  <path transform="rotate(-95 32 45)" d="M32 45 C35 38 42 37 44 35 C43 42 39 47 32 45 Z" fill="#4FAF8C" stroke="#2B1D12" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path transform="rotate(-5 32 41)" d="M32 41 C35 34 42 33 44 31 C43 38 39 43 32 41 Z" fill="#4FAF8C" stroke="#2B1D12" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M46 31 C48 34 49 35.6 49 37 C49 38.7 47.6 39.7 46 39.7 C44.4 39.7 43 38.7 43 37 C43 35.6 44 34 46 31 Z" fill="#D8F1FF" stroke="#3A8FB8" stroke-width="1.4"/>
-  <path d="M21 16 C20 26 25 32 32 32 C39 32 44 26 43 16 C40 19 37 21 35 24 L32 11 L29 24 C27 21 24 19 21 16 Z" fill="#5BB4E8" stroke="#2B1D12" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M29 24 L32 11 L35 24 C34 28 30 28 29 24 Z" fill="#7FC8F0" stroke="#2B1D12" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M24.5 21 C25 25 26.5 27.5 28.5 29" fill="none" stroke="#D8F1FF" stroke-width="1.6" stroke-linecap="round"/></svg>
