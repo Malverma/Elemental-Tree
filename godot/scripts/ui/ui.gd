@@ -19,6 +19,7 @@ const SOIL := Color("#A87C55")
 const GRASS := Color("#7CC46A")
 const ROOT_GLOW := Color("#FFD447")
 const MAP_BG := Color("#EDE3C8")
+const NIGHT := Color("#14231A")  # dark backing for text and pills over the pixel scenes
 
 const RES_ICON := {"sunlight": "icon_sunlight", "sap": "icon_sap"}
 
@@ -26,10 +27,30 @@ static var _textures := {}
 static var _bold: Font
 
 
+## Pixel art (assets/pixel/*.png) wins over the older vector art of the same name.
 static func tex(name: String) -> Texture2D:
 	if not _textures.has(name):
-		_textures[name] = load("res://assets/%s.svg" % name)
+		_textures[name] = load(("res://assets/pixel/%s.png" if is_pixel(name) else "res://assets/%s.svg") % name)
 	return _textures[name]
+
+
+static func is_pixel(name: String) -> bool:
+	return ResourceLoader.exists("res://assets/pixel/%s.png" % name)
+
+
+## Like tex(), but pixel art comes wrapped to draw with nearest filtering, for
+## custom drawing and button icons whose node filters smoothly.
+static func crisp(name: String) -> Texture2D:
+	var key := "crisp:" + name
+	if not _textures.has(key):
+		var t := tex(name)
+		if is_pixel(name):
+			var ct := CanvasTexture.new()
+			ct.diffuse_texture = t
+			ct.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			t = ct
+		_textures[key] = t
+	return _textures[key]
 
 
 static func bold_font() -> Font:
@@ -94,8 +115,20 @@ static func build_theme() -> Theme:
 	t.set_stylebox("panel", "PanelContainer", _box(PANEL, LINE, 3, 18, 20, 18))
 	t.set_type_variation("Card", "PanelContainer")
 	t.set_stylebox("panel", "Card", _box(Color.WHITE, LINE, 3, 14, 12, 12))
+	var bar := _box(Color(NIGHT, 0.72), Color.TRANSPARENT, 0, 0, 16, 12)
+	bar.corner_radius_bottom_left = 22
+	bar.corner_radius_bottom_right = 22
 	t.set_type_variation("TopBar", "PanelContainer")
-	t.set_stylebox("panel", "TopBar", _box(LEAF_DARK, LEAF_DARK, 0, 0, 16, 12))
+	t.set_stylebox("panel", "TopBar", bar)
+	# Floating pills over the pixel scenes, and the pull-up sheet.
+	t.set_type_variation("Pill", "PanelContainer")
+	t.set_stylebox("panel", "Pill", _box(Color(NIGHT, 0.72), Color(1, 1, 1, 0.18), 2, 26, 18, 8))
+	var sheet := _box(PANEL, INK, 4, 0, 0, 0)
+	sheet.border_width_bottom = 0
+	sheet.corner_radius_top_left = 30
+	sheet.corner_radius_top_right = 30
+	t.set_type_variation("Sheet", "PanelContainer")
+	t.set_stylebox("panel", "Sheet", sheet)
 	t.set_type_variation("Chip", "PanelContainer")
 	t.set_stylebox("panel", "Chip", _box(Color(1, 1, 1, 0.15), Color.TRANSPARENT, 0, 30, 12, 4))
 	t.set_type_variation("LevelChip", "PanelContainer")
@@ -106,6 +139,25 @@ static func build_theme() -> Theme:
 	t.set_stylebox("panel", "ToastBad", _box(DANGER, DANGER, 0, 14, 20, 12))
 	t.set_type_variation("Result", "PanelContainer")
 	t.set_stylebox("panel", "Result", _box(PANEL, INK, 4, 18, 28, 24))
+
+	# Outlined text that reads over the pixel scenes.
+	for v in ["Scene", "SceneTitle", "SceneSmall"]:
+		t.set_type_variation(v, "Label")
+		t.set_color("font_color", v, Color.WHITE)
+		t.set_color("font_outline_color", v, NIGHT)
+		t.set_constant("outline_size", v, 8)
+	t.set_font("font", "SceneTitle", bold_font())
+	t.set_font_size("font_size", "SceneTitle", 32)
+	t.set_font("font", "Scene", bold_font())
+	t.set_font_size("font_size", "SceneSmall", 20)
+	t.set_type_variation("FlatButton", "Button")
+	for state in ["normal", "hover", "pressed", "focus"]:
+		t.set_stylebox(state, "FlatButton", StyleBoxEmpty.new())
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		t.set_color(c, "FlatButton", Color.WHITE)
+	t.set_color("font_outline_color", "FlatButton", NIGHT)
+	t.set_constant("outline_size", "FlatButton", 8)
+	t.set_font("font", "FlatButton", bold_font())
 
 	for v in ["Muted", "Small", "Hint", "Title", "Heading", "OnDark", "OnDarkBold"]:
 		t.set_type_variation(v, "Label")
@@ -176,6 +228,8 @@ static func icon(name: String, size := 28) -> TextureRect:
 	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	r.custom_minimum_size = Vector2(size, size)
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if is_pixel(name):
+		r.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	return r
 
 

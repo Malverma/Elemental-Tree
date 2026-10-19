@@ -1,5 +1,7 @@
 extends Control
-## App shell: resource bar, bottom navigation, the current screen, toasts and the battle overlay.
+## App shell: the resource bar, the current screen, toasts and the battle overlay.
+## Swipe left/right to move between screens; on the Grove and Garden, swipe up
+## for a sheet with that screen's upgrades or seeds (swipe down to close it).
 
 const GroveView := preload("res://scripts/ui/grove_view.gd")
 const BarracksView := preload("res://scripts/ui/barracks_view.gd")
@@ -9,6 +11,11 @@ const BattleView := preload("res://scripts/ui/battle_view.gd")
 const InventoryPanel := preload("res://scripts/ui/inventory_panel.gd")
 
 const TABS := [["grove", "Grove"], ["garden", "Garden"], ["barracks", "Barracks"], ["map", "World Map"]]
+## How far (screen px) a drag must travel to count as a swipe, and how much it
+## must favour that direction over the other.
+const SWIPE_MIN := 90.0
+const SWIPE_BIAS := 1.3
+const SHEET_HEIGHT := 0.8  # share of the screen the pull-up sheet covers
 
 var tab := "grove"
 ## Screen state that survives redraws.
@@ -17,9 +24,22 @@ var ui := {"selected_plot": -1, "selected_troop": -1, "selected_level": "sunny_m
 
 var _content: Control
 var _view: Control
+var _view_tab := ""
+var _top_bar: Control
+var _bottom: Control
 var _resources: HBoxContainer
 var _powers: HBoxContainer
-var _nav := {}
+var _pages := {}
+var _handle: Button
+var _sheet_layer: Control
+var _sheet: PanelContainer
+var _sheet_title: Label
+var _sheet_scroll: ScrollContainer
+var _sheet_body: MarginContainer
+var _sheet_open := false
+var _swipe_start := Vector2.INF
+var _swipe_blocked := false
+var _swipe_sheet_scroll := 0
 var _toasts: VBoxContainer
 var _overlay: Control
 var _battle: Control
@@ -37,14 +57,21 @@ func _ready() -> void:
 	bg.set_anchors_preset(PRESET_FULL_RECT)
 	add_child(bg)
 
-	var root := UI.vbox(0)
-	root.set_anchors_preset(PRESET_FULL_RECT)
-	add_child(root)
-	root.add_child(_build_top_bar())
+	# Screens fill the window; the top bar and page indicator float over them.
 	_content = Control.new()
-	_content.size_flags_vertical = SIZE_EXPAND_FILL
-	root.add_child(_content)
-	root.add_child(_build_nav())
+	_content.set_anchors_preset(PRESET_FULL_RECT)
+	_content.clip_contents = true
+	add_child(_content)
+	_top_bar = _build_top_bar()
+	_top_bar.set_anchors_and_offsets_preset(PRESET_TOP_WIDE)
+	_top_bar.resized.connect(_apply_insets)
+	add_child(_top_bar)
+	_bottom = _build_pages()
+	_bottom.set_anchors_and_offsets_preset(PRESET_BOTTOM_WIDE)
+	_bottom.grow_vertical = GROW_DIRECTION_BEGIN
+	_bottom.resized.connect(_apply_insets)
+	add_child(_bottom)
+	add_child(_build_sheet())
 
 	# Floating layer for toasts and tap pops, above everything.
 	_overlay = Control.new()
@@ -100,14 +127,91 @@ func _build_top_bar() -> Control:
 	return UI.panel(col, "TopBar")
 
 
-func _build_nav() -> Control:
-	var row := UI.hbox(0)
+# The pull-up handle and the row of screen names along the bottom.
+func _build_pages() -> Control:
+	var col := UI.vbox(0)
+	col.mouse_filter = MOUSE_FILTER_IGNORE
+	_handle = UI.button("", open_sheet, "FlatButton")
+	_handle.size_flags_horizontal = SIZE_SHRINK_CENTER
+	_handle.add_theme_font_size_override("font_size", 22)
+	_handle.icon = UI.crisp("handle_up")
+	_handle.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	_handle.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_handle.add_theme_constant_override("icon_max_width", 33)
+	col.add_child(_handle)
+	var row := UI.hbox(22)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.mouse_filter = MOUSE_FILTER_IGNORE
 	for t in TABS:
-		var b := UI.button(t[1], switch_tab.bind(t[0]), "NavButton")
-		b.size_flags_horizontal = SIZE_EXPAND_FILL
-		_nav[t[0]] = b
-		row.add_child(b)
-	return row
+		# Each name is also a button: tap it, or swipe, to change screens.
+		var l := UI.button(t[1], _on_page_pressed.bind(t[0]), "FlatButton")
+		l.custom_minimum_size.y = 44
+		_pages[t[0]] = l
+		row.add_child(l)
+	var pill := UI.panel(row, "Pill")
+	pill.mouse_filter = MOUSE_FILTER_IGNORE
+	var center := UI.hbox(0)
+	center.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.mouse_filter = MOUSE_FILTER_IGNORE
+	center.add_child(pill)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_bottom", 14)
+	pad.add_theme_constant_override("margin_top", 2)
+	pad.mouse_filter = MOUSE_FILTER_IGNORE
+	pad.add_child(center)
+	col.add_child(pad)
+	return col
+
+
+# The pull-up sheet: a dimmed backdrop and a panel that slides up from the bottom.
+func _build_sheet() -> Control:
+	_sheet_layer = Control.new()
+	_sheet_layer.set_anchors_preset(PRESET_FULL_RECT)
+	_sheet_layer.visible = false
+	var dim := ColorRect.new()
+	dim.color = Color(UI.NIGHT, 0.45)
+	dim.set_anchors_preset(PRESET_FULL_RECT)
+	dim.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			close_sheet())
+	_sheet_layer.add_child(dim)
+	_sheet = PanelContainer.new()
+	_sheet.theme_type_variation = "Sheet"
+	_sheet.anchor_left = 0.0
+	_sheet.anchor_right = 1.0
+	_sheet.anchor_top = 1.0
+	_sheet.anchor_bottom = 1.0
+	_sheet_layer.add_child(_sheet)
+	var col := UI.vbox(6)
+	_sheet.add_child(col)
+	var grab := ColorRect.new()
+	grab.color = UI.LINE
+	grab.custom_minimum_size = Vector2(90, 8)
+	grab.size_flags_horizontal = SIZE_SHRINK_CENTER
+	var grab_pad := MarginContainer.new()
+	grab_pad.add_theme_constant_override("margin_top", 12)
+	grab_pad.add_child(grab)
+	col.add_child(grab_pad)
+	var head := UI.hbox(10)
+	var head_pad := MarginContainer.new()
+	for side in ["left", "right"]:
+		head_pad.add_theme_constant_override("margin_" + side, 20)
+	head_pad.add_child(head)
+	_sheet_title = UI.label("", "Title")
+	head.add_child(_sheet_title)
+	head.add_child(UI.spacer())
+	head.add_child(UI.button("Close", close_sheet))
+	col.add_child(head_pad)
+	_sheet_scroll = ScrollContainer.new()
+	_sheet_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_sheet_scroll.size_flags_vertical = SIZE_EXPAND_FILL
+	col.add_child(_sheet_scroll)
+	_sheet_body = MarginContainer.new()
+	_sheet_body.size_flags_horizontal = SIZE_EXPAND_FILL
+	for side in ["left", "right", "top", "bottom"]:
+		_sheet_body.add_theme_constant_override("margin_" + side, 16)
+	_sheet_scroll.add_child(_sheet_body)
+	return _sheet_layer
 
 
 func _chip(icon_name: String, value: float, icon_size := 26) -> Control:
@@ -133,7 +237,6 @@ func _refresh_resources() -> void:
 		for c in box.get_children():
 			c.queue_free()
 	var s: Dictionary = Game.state
-	_nav["garden"].modulate.a = 1.0 if Game.garden_unlocked() else 0.4
 	_resources.add_child(UI.panel(UI.label("Lv %d" % s["tree"]["level"], "Heading"), "LevelChip"))
 	var sun := _chip("icon_sunlight", s["resources"]["sunlight"])
 	var sap := _chip("icon_sap", s["resources"]["sap"])
@@ -147,14 +250,58 @@ func _refresh_resources() -> void:
 		_powers.add_child(c)
 
 
-func switch_tab(id: String) -> void:
+# Names along the bottom: the current screen bright. The garden only joins
+# the row once it opens, after the tree's first prestige.
+func _refresh_pages() -> void:
+	for k in _pages:
+		var l: Button = _pages[k]
+		l.add_theme_font_size_override("font_size", 26 if k == tab else 21)
+		l.modulate.a = 1.0 if k == tab else 0.7
+		l.visible = k != "garden" or Game.garden_unlocked()
+	var has_sheet := _view != null and _view.has_method("build_sheet")
+	_handle.visible = has_sheet and not _sheet_open
+	if has_sheet:
+		_handle.text = _view.sheet_title()
+
+
+func switch_tab(id: String, dir := 0) -> void:
 	if id == "garden" and not Game.garden_unlocked():
 		Game.toast.emit("The garden opens after the tree's first prestige.", false)
 		return
+	if id == tab and _view:
+		return
+	close_sheet(false)
 	tab = id
-	for k in _nav:
-		_nav[k].theme_type_variation = "NavButtonActive" if k == id else "NavButton"
+	if dir == 0 or _view == null:
+		render(false)
+		return
+	# Slide the old screen out and the new one in from the side swiped toward.
+	var old := _view
+	_view = null
 	render(false)
+	var w := size.x
+	_view.position.x = w * dir
+	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_view, "position:x", 0.0, 0.28)
+	tw.tween_property(old, "position:x", -w * dir, 0.28)
+	tw.chain().tween_callback(old.queue_free)
+
+
+# Slides toward the tapped screen, from the side it sits on in the row.
+func _on_page_pressed(id: String) -> void:
+	var ids := TABS.map(func(t): return t[0])
+	switch_tab(id, signi(ids.find(id) - ids.find(tab)))
+
+
+## Moves one screen left (-1) or right (+1); a locked garden isn't there yet.
+func step_tab(dir: int) -> void:
+	var ids := TABS.map(func(t): return t[0])
+	if not Game.garden_unlocked():
+		ids.erase("garden")
+	var i: int = ids.find(tab) + dir
+	if i < 0 or i >= ids.size():
+		return
+	switch_tab(ids[i], dir)
 
 
 # Several actions can fire in one frame (e.g. a battle result); redraw once.
@@ -164,10 +311,21 @@ func _queue_render() -> void:
 		render.call_deferred()
 
 
-## Rebuilds the current screen, keeping its scroll position when `keep_scroll`.
+## Redraws the current screen, keeping its scroll position when `keep_scroll`.
+## Screens with a `refresh` method update in place so their scenes keep animating.
 func render(keep_scroll := true) -> void:
 	_render_queued = false
 	_refresh_resources()
+	if _view and _view_tab == tab and _view.has_method("refresh"):
+		_view.refresh()
+	else:
+		_rebuild_view(keep_scroll)
+	_refresh_pages()
+	if _sheet_open:
+		_fill_sheet()
+
+
+func _rebuild_view(keep_scroll: bool) -> void:
 	var scroll := 0
 	if _view:
 		if keep_scroll and _view is ScrollContainer:
@@ -182,12 +340,113 @@ func render(keep_scroll := true) -> void:
 			_view = BarracksView.new(self)
 		_:
 			_view = MapView.new(self)
+	_view_tab = tab
 	_view.set_anchors_preset(PRESET_FULL_RECT)
 	_content.add_child(_view)
+	_apply_insets()
 	if scroll > 0:
 		await get_tree().process_frame
 		if is_instance_valid(_view):
 			_view.scroll_vertical = scroll
+
+
+# Full-screen scenes get told how much the bars cover; list screens sit between them.
+func _apply_insets() -> void:
+	if not _view or not is_instance_valid(_view):
+		return
+	var top := _top_bar.size.y
+	var bottom := _bottom.size.y
+	if _view.has_method("apply_insets"):
+		_view.apply_insets(top, bottom)
+	else:
+		_view.offset_top = top
+		_view.offset_bottom = -bottom
+
+
+## Opens the current screen's pull-up sheet (Grove upgrades, Garden seeds).
+func open_sheet() -> void:
+	if _sheet_open or not _view or not _view.has_method("build_sheet"):
+		return
+	_sheet_open = true
+	_fill_sheet()
+	_sheet_layer.visible = true
+	move_child(_sheet_layer, -1)
+	move_child(_overlay, -1)
+	_handle.visible = false
+	var h := size.y * SHEET_HEIGHT
+	_sheet.offset_top = 0.0
+	_sheet.offset_bottom = h
+	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_sheet, "offset_top", -h, 0.3)
+	tw.tween_property(_sheet, "offset_bottom", 0.0, 0.3)
+
+
+func close_sheet(animate := true) -> void:
+	if not _sheet_open:
+		return
+	_sheet_open = false
+	_refresh_pages()
+	if not animate:
+		_sheet_layer.visible = false
+		return
+	var h := -_sheet.offset_top
+	var tw := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tw.tween_property(_sheet, "offset_top", 0.0, 0.22)
+	tw.tween_property(_sheet, "offset_bottom", h, 0.22)
+	tw.chain().tween_callback(func() -> void:
+		if not _sheet_open:
+			_sheet_layer.visible = false)
+
+
+func _fill_sheet() -> void:
+	var scroll := _sheet_scroll.scroll_vertical
+	for c in _sheet_body.get_children():
+		_sheet_body.remove_child(c)
+		c.queue_free()
+	_sheet_title.text = _view.sheet_title()
+	_sheet_body.add_child(_view.build_sheet())
+	if scroll > 0:
+		await get_tree().process_frame
+		_sheet_scroll.scroll_vertical = scroll
+
+
+# Swipes are read here, ahead of the screens, so they work wherever they start.
+# A drag that becomes a drag-and-drop (moving troops) is never a swipe.
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_swipe_start = event.position
+			_swipe_blocked = _battle != null or _modal_open()
+			_swipe_sheet_scroll = _sheet_scroll.scroll_vertical
+		elif _swipe_start != Vector2.INF:
+			var d: Vector2 = event.position - _swipe_start
+			_swipe_start = Vector2.INF
+			if not _swipe_blocked and not get_viewport().gui_is_dragging():
+				_on_swipe(d)
+	elif event is InputEventMouseMotion and _swipe_start != Vector2.INF and get_viewport().gui_is_dragging():
+		_swipe_blocked = true
+
+
+func _on_swipe(d: Vector2) -> void:
+	var horizontal := absf(d.x) >= SWIPE_MIN and absf(d.x) > absf(d.y) * SWIPE_BIAS
+	var vertical := absf(d.y) >= SWIPE_MIN and absf(d.y) > absf(d.x) * SWIPE_BIAS
+	if _sheet_open:
+		# Swiping down closes the sheet, unless it was scrolling its list.
+		if vertical and d.y > 0 and _swipe_sheet_scroll == 0:
+			close_sheet()
+		return
+	if horizontal:
+		step_tab(-1 if d.x > 0 else 1)
+	elif vertical and d.y < 0:
+		open_sheet()
+
+
+# Inventory panels and dialogs take the screen; swipes wait until they close.
+func _modal_open() -> bool:
+	for c in get_children():
+		if c.has_signal("closed") or (c is Window and c.visible):
+			return true
+	return false
 
 
 func _on_tick() -> void:

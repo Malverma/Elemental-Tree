@@ -7,8 +7,12 @@ signal finished
 # Units only move inside the lane band, so only that part of the field is shown.
 const VIEW := Rect2(BattleSim.MIN_X - 45.0, 0.0, BattleSim.MAX_X - BattleSim.MIN_X + 90.0, BattleSim.H)
 
+## Screen pixels per art pixel for the tiled pixel-art ground.
+const PIXEL := 4.0
+
 var sim: BattleSim
 var speed := 1.0
+var _grounds := {}
 var paused := false
 var _done := false
 
@@ -31,6 +35,17 @@ func _process(delta: float) -> void:
 		finished.emit()
 
 
+# The ground tile for an element, set to repeat with crisp pixels.
+func _ground(element: String) -> CanvasTexture:
+	if not _grounds.has(element):
+		var ct := CanvasTexture.new()
+		ct.diffuse_texture = UI.tex("ground_" + element)
+		ct.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		ct.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+		_grounds[element] = ct
+	return _grounds[element]
+
+
 func _draw() -> void:
 	var s := size.x / VIEW.size.x
 	draw_set_transform(-VIEW.position * s, 0.0, Vector2(s, s))
@@ -39,12 +54,15 @@ func _draw() -> void:
 	var h := VIEW.size.y
 	var tint: Color = GameData.BIOME_COLORS[sim.element()]
 
-	# Ground, enemy territory tint and lane paths.
-	draw_polygon(PackedVector2Array([Vector2(x0, 0), Vector2(x0 + w, 0), Vector2(x0 + w, h), Vector2(x0, h)]),
-		PackedColorArray([Color("#BFD9A8"), Color("#BFD9A8"), Color("#DCEFD8"), Color("#DCEFD8")]))
-	draw_rect(Rect2(x0, 0, w, h / 2), Color(tint, 0.25))
+	# Pixel ground of the land's element, a shaded enemy half, and worn lane paths.
+	var px_size := size / PIXEL
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(PIXEL, PIXEL))
+	draw_texture_rect(_ground(sim.element()), Rect2(Vector2.ZERO, px_size), true)
+	draw_rect(Rect2(0, 0, px_size.x, floorf(px_size.y / 2.0)), Color(tint.darkened(0.6), 0.18))
 	for x in BattleSim.LANE_X:
-		draw_rect(Rect2(x - 3, 0, 6, h), Color(0.31, 0.24, 0.12, 0.12))
+		var lx := floorf((x - x0) * s / PIXEL)
+		draw_rect(Rect2(lx - 1, 0, 3, px_size.y), Color(0.2, 0.13, 0.06, 0.18))
+	draw_set_transform(-VIEW.position * s, 0.0, Vector2(s, s))
 
 	# Units, back to front so lower units overlap higher ones.
 	var units: Array = []
@@ -69,13 +87,13 @@ func _draw() -> void:
 			tint_u = Color(1.5, 0.75, 0.55)
 		elif u.slow_t > 0.0:
 			tint_u = Color(0.75, 0.9, 1.2)
-		draw_texture_rect(UI.tex(u.def["img"]), Rect2(u.pos - Vector2(sz, sz) / 2, Vector2(sz, sz)), false, tint_u)
+		draw_texture_rect(UI.crisp(u.def["img"]), Rect2(u.pos - Vector2(sz, sz) / 2, Vector2(sz, sz)), false, tint_u)
 		var bw := sz * 0.7
 		var top: Vector2 = u.pos - Vector2(bw / 2, sz / 2 + 10)
 		draw_rect(Rect2(top, Vector2(bw, 7)), Color(0, 0, 0, 0.35))
 		draw_rect(Rect2(top, Vector2(bw * u.hp / u.max_hp, 7)), UI.LEAF if u.side == "ally" else Color("#D9534F"))
 		if el != "":
-			draw_texture_rect(UI.tex("icon_" + el), Rect2(top + Vector2(-20, -7), Vector2(18, 18)), false)
+			draw_texture_rect(UI.crisp("icon_" + el), Rect2(top + Vector2(-20, -7), Vector2(18, 18)), false)
 
 	for p in sim.projectiles:
 		draw_circle(p.pos, 5, p.color)

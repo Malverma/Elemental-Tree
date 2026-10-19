@@ -1,67 +1,105 @@
-extends ScrollContainer
-## Grove: the tree, collecting production, growth and tree-part upgrades.
+extends Control
+## Grove: the tree, full screen. Tap the leaves for sunlight and the trunk for sap;
+## swipe up for growth, tree-part upgrades and the inventory.
 
 const SAP_POP := Color("#F5821F")  # orange "+1" for trunk taps (sunlight pops are yellow)
 const STAGES := [[35, "World Tree"], [20, "Elder Tree"], [10, "Grown Tree"], [5, "Young Tree"], [1, "Sapling"]]
 
 var main: Control
+var _scene: GroveScene
+var _margin: MarginContainer
+var _title: Label
 var _pending_sun: Label
 var _pending_sap: Label
 
 
 func _init(p_main: Control) -> void:
 	main = p_main
-	horizontal_scroll_mode = SCROLL_MODE_DISABLED
 
 
 func _ready() -> void:
-	var s: Dictionary = Game.state
-	var tree: Dictionary = s["tree"]
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = SIZE_EXPAND_FILL
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 16)
-	add_child(margin)
-	var col := UI.vbox(16)
-	margin.add_child(col)
+	_set_scene()
+	_margin = MarginContainer.new()
+	_margin.set_anchors_preset(PRESET_FULL_RECT)
+	_margin.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_margin)
+	var col := UI.vbox(4)
+	col.mouse_filter = MOUSE_FILTER_IGNORE
+	_margin.add_child(col)
 
-	# Tree, tap hint and collection.
-	var tree_box := UI.vbox(10)
-	tree_box.add_child(_inventory_row())
-	var art := TreeArt.new(tree)
-	art.tapped.connect(_on_tap)
-	tree_box.add_child(art)
+	_title = UI.label("", "SceneTitle")
+	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(_title)
 	var hint := UI.hbox(6)
 	hint.alignment = BoxContainer.ALIGNMENT_CENTER
-	for part in [["Tap the branches", "icon_sunlight", GameData.TAP_SUNLIGHT, UI.SUN], ["· the trunk", "icon_sap", GameData.TAP_SAP, SAP_POP]]:
-		var text := UI.label(part[0], "Heading")
-		text.add_theme_color_override("font_color", part[3])
-		hint.add_child(text)
-		hint.add_child(UI.icon(part[1], 24))
-		var amt := UI.label("+%d" % part[2], "Heading")
-		amt.add_theme_color_override("font_color", part[3])
-		hint.add_child(amt)
-	tree_box.add_child(hint)
+	hint.mouse_filter = MOUSE_FILTER_IGNORE
+	for part in [["Tap the leaves", "icon_sunlight", GameData.TAP_SUNLIGHT], ["· the trunk", "icon_sap", GameData.TAP_SAP]]:
+		hint.add_child(UI.label(part[0], "SceneSmall"))
+		hint.add_child(UI.icon(part[1], 22))
+		hint.add_child(UI.label("+%d" % part[2], "SceneSmall"))
+	col.add_child(hint)
 
-	var pending := UI.hbox(24)
-	pending.alignment = BoxContainer.ALIGNMENT_CENTER
-	_pending_sun = UI.label("", "Title")
-	_pending_sap = UI.label("", "Title")
+	var gap := Control.new()
+	gap.size_flags_vertical = SIZE_EXPAND_FILL
+	gap.mouse_filter = MOUSE_FILTER_IGNORE
+	col.add_child(gap)
+
+	# Production waiting at the tree, with a Collect button.
+	var pill := UI.hbox(10)
+	_pending_sun = UI.label("", "Scene")
+	_pending_sap = UI.label("", "Scene")
 	for pair in [["icon_sunlight", _pending_sun], ["icon_sap", _pending_sap]]:
-		var p := UI.hbox(6)
-		p.add_child(UI.icon(pair[0], 30))
-		p.add_child(pair[1])
-		pending.add_child(p)
+		pill.add_child(UI.icon(pair[0], 30))
+		pill.add_child(pair[1])
 	var collect := UI.button("Collect", Game.collect, "PrimaryButton")
-	collect.custom_minimum_size.x = 200
-	pending.add_child(collect)
-	tree_box.add_child(pending)
-	var note := UI.label("Stores up to 24 hours of production.", "Small")
-	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tree_box.add_child(note)
-	col.add_child(UI.panel(tree_box))
+	collect.custom_minimum_size.x = 150
+	pill.add_child(collect)
+	var row := UI.hbox(0)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.mouse_filter = MOUSE_FILTER_IGNORE
+	row.add_child(UI.panel(pill, "Pill"))
+	col.add_child(row)
+	refresh()
 
-	# Growth.
+
+func _set_scene() -> void:
+	if _scene:
+		_scene.queue_free()
+	_scene = GroveScene.new(GroveScene.stage_for(Game.state["tree"]["level"]))
+	_scene.set_anchors_preset(PRESET_FULL_RECT)
+	_scene.tapped.connect(_on_tap)
+	add_child(_scene)
+	move_child(_scene, 0)
+
+
+## Keeps the overlay clear of the shell's top bar and page indicator.
+func apply_insets(top: float, bottom: float) -> void:
+	_margin.add_theme_constant_override("margin_top", int(top) + 8)
+	_margin.add_theme_constant_override("margin_bottom", int(bottom) + 8)
+	_margin.add_theme_constant_override("margin_left", 16)
+	_margin.add_theme_constant_override("margin_right", 16)
+
+
+## Updates in place after a state change (the shell calls this instead of rebuilding).
+func refresh() -> void:
+	var tree: Dictionary = Game.state["tree"]
+	if GroveScene.stage_for(tree["level"]) != _scene.stage:
+		_set_scene()
+	_title.text = "%s · Lv %d" % [_stage_name(tree["level"]), tree["level"]]
+	live()
+
+
+func sheet_title() -> String:
+	return "Upgrades"
+
+
+## Growth, rates, tree-part upgrades and the inventory, shown in the pull-up sheet.
+func build_sheet() -> Control:
+	var s: Dictionary = Game.state
+	var tree: Dictionary = s["tree"]
+	var col := UI.vbox(16)
+	col.add_child(_inventory_row())
+
 	var need := Game.growth_needed()
 	var maxed: bool = tree["level"] >= GameData.MAX_LEVEL
 	var g := UI.vbox(10)
@@ -93,11 +131,12 @@ func _ready() -> void:
 		row.add_child(UI.icon(pair[0], 26))
 		row.add_child(UI.label(pair[1]))
 		g.add_child(row)
+	g.add_child(UI.label("The tree stores up to 24 hours of production.", "Small"))
 	col.add_child(UI.panel(g))
 
 	for part in GameData.PART_ORDER:
 		col.add_child(_part_card(part))
-	live()
+	return col
 
 
 # Inventory button, plus the potions readied for the next battle.
@@ -107,7 +146,7 @@ func _inventory_row() -> Control:
 	for id in GameData.ITEM_ORDER:
 		total += Game.item_count(id)
 	var inv := UI.button("Inventory (%d)" % total, main.open_inventory)
-	inv.icon = UI.tex("icon_inventory")
+	inv.icon = UI.crisp("icon_inventory")
 	inv.add_theme_constant_override("icon_max_width", 30)
 	row.add_child(inv)
 	row.add_child(UI.spacer())

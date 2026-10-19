@@ -110,7 +110,7 @@ func _process(_delta: float) -> void:
 
 func _potions_button() -> Button:
 	var b := UI.button("Potions", _open_inventory)
-	b.icon = UI.tex("icon_inventory")
+	b.icon = UI.crisp("icon_inventory")
 	b.add_theme_constant_override("icon_max_width", 28)
 	return b
 

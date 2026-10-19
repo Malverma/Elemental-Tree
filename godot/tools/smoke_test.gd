@@ -15,6 +15,17 @@ func _check(cond: bool, what: String) -> void:
 	print(("PASS " if cond else "FAIL ") + what)
 
 
+# Feeds the shell a press and release `d` apart, as a finger swipe would.
+func _swipe(d: Vector2) -> void:
+	var from := Vector2(360, 700)
+	for pressed in [true, false]:
+		var e := InputEventMouseButton.new()
+		e.button_index = MOUSE_BUTTON_LEFT
+		e.pressed = pressed
+		e.position = from if pressed else from + d
+		main._input(e)
+
+
 func _initialize() -> void:
 	_run.call_deferred()
 
@@ -45,6 +56,31 @@ func _run() -> void:
 	_check(GameData.part_cost("roots", 3).has("sap") and GameData.part_cost("trunk", 3).has("sap"), "part upgrades past level 3 cost sap")
 	_check(GameData.part_cost("branches", 8)["sunlight"] == roundi(GameData.xp_to_next(8) * 0.2 / 5.0) * 5, "part sunlight follows the growth curve")
 	_check(not game.has_seen_enemy("burrow_rabbit"), "meadow foes unknown before the first battle")
+
+	# Swipes: left/right between screens (stepping past the locked garden), up/down for the sheet.
+	_swipe(Vector2(-300, 10))
+	await _frames(25)
+	_check(main.tab == "barracks", "swiping left from the grove skips the locked garden")
+	_swipe(Vector2(300, -10))
+	await _frames(25)
+	_check(main.tab == "grove", "swiping right returns to the grove")
+	_swipe(Vector2(10, -300))
+	await _frames(25)
+	_check(main._sheet_open and main._sheet_body.get_child_count() == 1, "swiping up opens the upgrades sheet")
+	_swipe(Vector2(-300, 0))
+	await _frames(5)
+	_check(main.tab == "grove", "sideways swipes don't change screens while the sheet is open")
+	_swipe(Vector2(0, 300))
+	await _frames(25)
+	_check(not main._sheet_open, "swiping down closes the sheet")
+	_swipe(Vector2(40, 30))
+	_check(main.tab == "grove" and not main._sheet_open, "short drags aren't swipes")
+	main._pages["map"].pressed.emit()
+	await _frames(25)
+	_check(main.tab == "map", "tapping a screen's name opens it")
+	main._pages["grove"].pressed.emit()
+	await _frames(25)
+	_check(main.tab == "grove" and not main._pages["garden"].visible, "the garden's name stays hidden until it opens")
 
 	main.switch_tab("barracks")
 	await _frames()

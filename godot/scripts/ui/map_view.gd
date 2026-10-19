@@ -1,37 +1,159 @@
-extends ScrollContainer
-## World map with the selected level's details underneath.
+extends Control
+## World map, full screen. Tap a land, the Home Grove or a dungeon to select it;
+## the card at the bottom has its main action, and the pull-up sheet the details.
 
 var main: Control
-var _stored: Label
+var _scene: MapScene
+var _margin: MarginContainer
+var _reach: Label
 var _dungeon_timer: Label
+var _card_row: HBoxContainer
+var _insets := Vector2.ZERO
+var _stored: Label
+var _sheet_stored: Label  # the stored count in the details sheet
 
 
 func _init(p_main: Control) -> void:
 	main = p_main
-	horizontal_scroll_mode = SCROLL_MODE_DISABLED
 
 
 func _ready() -> void:
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = SIZE_EXPAND_FILL
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 16)
-	add_child(margin)
-	var col := UI.vbox(16)
-	margin.add_child(col)
-
-	var map_box := UI.vbox(8)
-	var canvas := MapCanvas.new(main.ui["selected_level"])
-	canvas.level_selected.connect(func(id: String) -> void:
+	_scene = MapScene.new(main.ui["selected_level"])
+	_scene.set_anchors_preset(PRESET_FULL_RECT)
+	_scene.level_selected.connect(func(id: String) -> void:
 		main.ui["selected_level"] = id
 		main.render())
-	map_box.add_child(canvas)
-	map_box.add_child(UI.label("Roots reach distance %d. Upgrade the roots in the Grove to reach farther lands." % Game.reach(), "Small", true))
-	_dungeon_timer = UI.label("", "Small", true)
-	map_box.add_child(_dungeon_timer)
-	col.add_child(UI.panel(map_box))
-	col.add_child(UI.panel(_level_info(main.ui["selected_level"])))
+	add_child(_scene)
+
+	_margin = MarginContainer.new()
+	_margin.set_anchors_preset(PRESET_FULL_RECT)
+	_margin.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_margin)
+	var col := UI.vbox(2)
+	col.mouse_filter = MOUSE_FILTER_IGNORE
+	_margin.add_child(col)
+	_reach = UI.label("", "SceneSmall")
+	_reach.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(_reach)
+	_dungeon_timer = UI.label("", "SceneSmall")
+	_dungeon_timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(_dungeon_timer)
+	var gap := Control.new()
+	gap.size_flags_vertical = SIZE_EXPAND_FILL
+	gap.mouse_filter = MOUSE_FILTER_IGNORE
+	col.add_child(gap)
+	_card_row = UI.hbox(0)
+	_card_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_card_row.mouse_filter = MOUSE_FILTER_IGNORE
+	col.add_child(_card_row)
+	_card_row.resized.connect(_fit_map)
+	_reach.resized.connect(_fit_map)
+	refresh()
+
+
+## Keeps the overlay clear of the shell's top bar and page indicator; the map
+## itself fits in the space between them.
+func apply_insets(top: float, bottom: float) -> void:
+	_margin.add_theme_constant_override("margin_top", int(top) + 4)
+	_margin.add_theme_constant_override("margin_bottom", int(bottom) + 8)
+	_margin.add_theme_constant_override("margin_left", 16)
+	_margin.add_theme_constant_override("margin_right", 16)
+	_insets = Vector2(top, bottom)
+	_fit_map()
+
+
+# The map fits between the hint at the top and the card at the bottom, so no land hides behind them.
+func _fit_map() -> void:
+	_scene.set_insets(_insets.x + 4 + _reach.size.y, _insets.y + 12 + _card_row.size.y)
+
+
+## Updates in place after a state change (the shell calls this instead of rebuilding).
+func refresh() -> void:
+	var id: String = main.ui["selected_level"]
+	if id.begins_with("dungeon_") and Game.dungeon(id).is_empty():
+		id = "grove"  # a cleared dungeon crumbles
+		main.ui["selected_level"] = id
+	_scene.set_selected(id)
+	_reach.text = "Roots reach %d" % Game.reach()
+	_build_card(id)
 	live()
+
+
+func sheet_title() -> String:
+	return "Details"
+
+
+## Everything about the selected spot, shown in the pull-up sheet.
+func build_sheet() -> Control:
+	return _level_info(main.ui["selected_level"])
+
+
+# A floating card for the selection: its name, how it stands, and what you can do there.
+func _build_card(id: String) -> void:
+	for c in _card_row.get_children():
+		c.queue_free()
+	_stored = null
+	var title := ""
+	var status := ""
+	var buttons: Array[Button] = []
+	var hint := ""
+	if id == "grove":
+		title = "Home Grove"
+		status = "Expeditions set out from here."
+		var check := Game.can_start_expedition()
+		var start := UI.button("Start expedition", main.start_expedition, "PrimaryButton")
+		start.disabled = not check["ok"]
+		buttons.append(start)
+		hint = "" if check["ok"] else check["msg"]
+	elif id.begins_with("dungeon_"):
+		var d := Game.dungeon(id)
+		title = GameData.DUNGEON_NAMES[d["element"]]
+		status = "Dungeon · %s · Reach %d" % [UI.capitalize(d["element"]), d["distance"]]
+		var enter := Game.can_enter_dungeon(id)
+		var go := UI.button("Enter dungeon", main.start_dungeon.bind(id), "PrimaryButton")
+		go.disabled = not enter["ok"]
+		buttons.append(go)
+		hint = "" if enter["ok"] else enter["msg"]
+	else:
+		var l: Dictionary = GameData.LEVELS[id]
+		var ls := Game.level_state(id)
+		title = l["name"]
+		if not l["playable"]:
+			status = "Coming soon"
+		else:
+			status = "%s · Reach %d" % [" + ".join(l["elements"].map(UI.capitalize)), l["distance"]]
+			if ls["conquered"]:
+				status += " · Conquered"
+				buttons.append(UI.button("Collect", Game.collect_level.bind(id)))
+			elif not Game.can_reach(id):
+				status += " · Out of reach"
+			var enter := Game.can_enter(id)
+			var attack := UI.button("Battle again" if ls["conquered"] else "Attack", main.start_battle.bind(id), "PrimaryButton")
+			attack.disabled = not enter["ok"]
+			buttons.append(attack)
+			hint = "" if enter["ok"] else enter["msg"]
+
+	var row := UI.hbox(12)
+	var text := UI.vbox(2)
+	text.size_flags_horizontal = SIZE_EXPAND_FILL
+	text.add_child(UI.label(title, "Scene"))
+	var sub := UI.label(status, "SceneSmall", true)
+	text.add_child(sub)
+	if GameData.LEVELS.has(id) and Game.level_state(id)["conquered"]:
+		_stored = UI.label("", "SceneSmall")
+		text.add_child(_stored)
+	if hint != "":
+		var h := UI.label(hint, "SceneSmall", true)
+		h.add_theme_color_override("font_color", Color("#FFB3A8"))
+		text.add_child(h)
+	row.add_child(text)
+	var col := UI.vbox(6)
+	for b in buttons:
+		col.add_child(b)
+	row.add_child(col)
+	var card := UI.panel(row, "Pill")
+	card.custom_minimum_size.x = 660
+	_card_row.add_child(card)
 
 
 # The Home Grove: where expeditions set out from.
@@ -66,7 +188,7 @@ func _grove_info() -> Control:
 	var drops := UI.hbox(6)
 	drops.add_child(UI.label("• Potions and garden seeds"))
 	drops.add_child(UI.icon(GameData.ITEMS["thorn_draught"]["img"], 28))
-	drops.add_child(UI.icon(GameData.SEEDS["sapling"]["img"], 28))
+	drops.add_child(UI.icon(GameData.SEEDS["sapling"]["img"], 32))
 	box.add_child(drops)
 	box.add_child(UI.label("Each boss checkpoint always drops a potion and a seed.", "Small", true))
 
@@ -131,8 +253,8 @@ func _level_info(id: String) -> Control:
 		for e in l["elements"]:
 			row.add_child(UI.icon("icon_" + e, 28))
 		row.add_child(UI.label("Stored:"))
-		_stored = UI.label("", "Heading")
-		row.add_child(_stored)
+		_sheet_stored = UI.label(str(floori(ls["stored"])), "Heading")
+		row.add_child(_sheet_stored)
 		row.add_child(UI.label("/ %d" % l["daily_yield"]))
 		row.add_child(UI.spacer())
 		row.add_child(UI.button("Collect", Game.collect_level.bind(id)))
@@ -181,7 +303,7 @@ func _dungeon_info(id: String, d: Dictionary) -> Control:
 	var el: String = d["element"]
 	var box := UI.vbox(10)
 	var head := UI.hbox(10)
-	head.add_child(UI.icon("dungeon", 34))
+	head.add_child(UI.icon(MapScene.dungeon_art(d), 39))
 	head.add_child(UI.label(GameData.DUNGEON_NAMES[el], "Title", true))
 	box.add_child(head)
 	var sub := UI.hbox(6)
@@ -207,7 +329,7 @@ func _dungeon_info(id: String, d: Dictionary) -> Control:
 	box.add_child(potions)
 	var seeds := UI.hbox(6)
 	seeds.add_child(UI.label("• %d garden seed%s" % [n, "" if n == 1 else "s"]))
-	seeds.add_child(UI.icon(GameData.SEEDS[el]["img"], 28))
+	seeds.add_child(UI.icon(GameData.SEEDS[el]["img"], 32))
 	if not Game.garden_unlocked():
 		seeds.add_child(UI.label("(after the tree's first prestige)", "Hint"))
 	box.add_child(seeds)
@@ -225,6 +347,9 @@ func live() -> void:
 	var wait := Game.next_dungeon_in()
 	_dungeon_timer.visible = wait >= 0.0
 	if wait >= 0.0:
-		_dungeon_timer.text = "Next dungeon appears in %d:%02d." % [int(wait) / 60, int(wait) % 60]
+		_dungeon_timer.text = "Next dungeon appears in %d:%02d" % [int(wait) / 60, int(wait) % 60]
+	if is_instance_valid(_sheet_stored):
+		_sheet_stored.text = str(floori(Game.level_state(main.ui["selected_level"])["stored"]))
 	if _stored:
-		_stored.text = str(floori(Game.level_state(main.ui["selected_level"])["stored"]))
+		var id: String = main.ui["selected_level"]
+		_stored.text = "Stored: %d / %d power" % [floori(Game.level_state(id)["stored"]), GameData.LEVELS[id]["daily_yield"]]
