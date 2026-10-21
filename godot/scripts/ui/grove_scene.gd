@@ -21,6 +21,8 @@ const TREE_BASE_V := 194.0 / 200.0
 const CROWN_SWAY := 1.2
 const LEAF_FALL := 30.0  # design px / s
 const SNARE_REACH := 70.0  # design px: the farthest a snare branch stretches from the leaves
+const SNARE_HIDDEN := 12.0  # design px: the deepest in the leaves a snare branch starts
+const SNARE_SHOWN := 10  # design px: the least of it showing between the leaves and the bird
 const SNARE_LENGTH := 30.0  # design px: the length it likes best, long enough to see it shoot out
 ## Cloud positions survive rebuilds so the sky doesn't jump.
 static var _cloud_x := [20.0, 120.0, -40.0]
@@ -163,16 +165,39 @@ func snare_bird() -> bool:
 	if _snare.busy():
 		return false
 	var best := {}
+	var fallback := {}
 	for b in _birds.visible_birds():
 		var at := GroveBirds.body(b)
 		for root in _snare_roots:
 			var d := root.distance_to(at)
 			if d < 14.0 or d > SNARE_REACH:
 				continue
-			# Rather reach up or out to a bird than down at it.
-			var score := absf(d - SNARE_LENGTH) + (12.0 if root.y < at.y - 4.0 else 0.0)
+			# The branch is drawn behind the leaves, so it has to burst out of
+			# them a few pixels from its root and cross open sky to the bird.
+			var hidden := -1.0  # how far along it leaves the crown
+			var sky := 0
+			var steps := int(d)
+			for k in steps:
+				var q := root.lerp(at, float(k) / steps)
+				if not hits(_crown_img, q - TREE_POS):
+					sky += 1
+					if hidden < 0.0:
+						hidden = float(k)
+			if hidden < 0.0:
+				continue
+			# Failing that, any reach out of the leaves will do.
+			var loose := absf(d - SNARE_LENGTH) + hidden
+			if fallback.is_empty() or loose < fallback["score"]:
+				fallback = {"score": loose, "root": root, "bird": b}
+			if hidden < 2.0 or hidden > SNARE_HIDDEN or sky < SNARE_SHOWN or sky < 0.8 * (steps - hidden):
+				continue
+			# A good length of spear showing, from not too deep in the leaves;
+			# rather up or out to a bird than down at it.
+			var score := absf(sky - SNARE_LENGTH) + hidden * 0.5 + (12.0 if root.y < at.y - 4.0 else 0.0)
 			if best.is_empty() or score < best["score"]:
 				best = {"score": score, "root": root, "bird": b}
+	if best.is_empty():
+		best = fallback
 	if best.is_empty():
 		return false
 	_snare.strike(best["root"], best["bird"])
