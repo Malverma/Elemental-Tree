@@ -177,35 +177,63 @@ func plant(kind: String, ox: int):
 			px(bx - 7, by - 26, Color("#c8a2ff")); px(bx + 6, by - 28, Color("#9a6ad8")); px(bx + 8, by - 24, Color("#c8a2ff"))
 	auto_outline(Rect2i(ox, 0, 32, 32))
 
-# --- lot (40x26) and selection brackets ---
+# --- lot (40x26): a soil bed ringed by two braided roots, root curls at the sides ---
 func lot(ox: int, oy: int):
-	var w = 40
-	var h = 24
-	for y in h:
-		for x in w:
-			var edge = x < 2 or x >= w - 2 or y < 2 or y >= h - 3
-			var corner = (x < 2 or x >= w - 2) and (y < 2 or y >= h - 3)
-			if corner and (x == 0 or x == w - 1) and (y == 0 or y == h - 1):
+	var c = Vector2(20, 11.5)
+	var rx = 18.0
+	var ry = 10.5
+	# little roots curling out from the rim, drawn first so the ring sits on top
+	for t in [[c + Vector2(-16, 4), Vector2(-1, 0.5), 1.0], [c + Vector2(16, 4), Vector2(1, 0.5), -1.0]]:
+		var p: Vector2 = t[0]
+		var d: Vector2 = t[1].normalized()
+		for i in 5:
+			var q = p + d * i
+			d = d.rotated(0.45 * t[2])
+			px(ox + int(round(q.x)), oy + int(round(q.y)), BARK[3] if i < 2 else BARK[2])
+			px(ox + int(round(q.x)), oy + int(round(q.y)) + 1, BARK[1])
+	for y in 24:
+		for x in 40:
+			var n = Vector2((x + 0.5 - c.x) / rx, (y + 0.5 - c.y) / ry)
+			var r = n.length()
+			if r > 1.0:
 				continue
-			var c: Color
-			if edge:
-				c = BARK[3] if y < 2 else (BARK[1] if y >= h - 3 else BARK[2])
-				if y >= h - 3 and y == h - 1: c = BARK[0]
-				if not (y < 2 or y >= h - 3) and posmod(y, 6) == 0: c = BARK[1]
-				if (y < 2 or y >= h - 3) and posmod(x, 10) == 9: c = BARK[1]
+			var col: Color
+			if r > 0.6:
+				# two root strands crossing as they wind round the bed, lit from the top left
+				var a = atan2(n.y, n.x)
+				var u = (r - 0.6) / 0.4
+				var wave = 0.5 + 0.32 * sin(a * 6.0)
+				var ca = absf(u - wave)
+				var cb = absf(u - (1.0 - wave))
+				var on_a = ca < cb if cos(a * 6.0) > 0.0 else ca <= cb  # strands swap over at each crossing
+				var dc = minf(ca, cb)
+				var lit = -n.y * 0.8 - n.x * 0.35
+				col = (BARK[3] if on_a else BARK[2]) if lit > -0.1 else (BARK[2] if on_a else BARK[1])
+				if dc < 0.1 and lit > 0.2: col = BARK[4]
+				if dc > 0.3: col = BARK[0]  # the gap between strands
+				if r > 0.96: col = BARK[0]
 			else:
-				var ridge = posmod(y - 2, 4)
-				c = Color("#6b4226")
-				if ridge == 0: c = Color("#8a5a34")
-				elif ridge == 3: c = Color("#4a2c18")
-				if ridge == 1 and bayer(x, y) > 0.8: c = Color("#7a4d2c")
-				if y == 2: c = Color("#3f2414")
-			px(ox + x, oy + y, c)
-	# shadow on the grass below
-	for x in range(1, w - 1):
-		px(ox + x, oy + h, Color(0.1, 0.25, 0.08, 0.35))
-		if bayer(x, 0) > 0.5:
-			px(ox + x, oy + h + 1, Color(0.1, 0.25, 0.08, 0.25))
+				# dark loam with furrows, shaded under the top rim
+				var ridge = posmod(y - 3, 3)
+				col = Color("#4e2e18")
+				if ridge == 0: col = Color("#6a4226")
+				elif ridge == 2: col = Color("#36200f")
+				if n.y < -0.35: col = col.darkened(0.3)
+				if r > 0.55: col = Color("#2a160a")
+			px(ox + x, oy + y, col)
+	# moss on the rim
+	for m in [[10, 2], [11, 2], [29, 3], [5, 15], [34, 16]]:
+		px(ox + m[0], oy + m[1], LEAF[3])
+	# a soft shadow just under the bed
+	for x in range(3, 37):
+		var low = -1
+		for y in 24:
+			if img.get_pixel(ox + x, oy + y).a > 0.5:
+				low = y
+		if low >= 0 and low + 1 < 26:
+			px(ox + x, oy + low + 1, Color(0.1, 0.25, 0.08, 0.4))
+			if low + 2 < 26 and bayer(x, 0) > 0.5:
+				px(ox + x, oy + low + 2, Color(0.1, 0.25, 0.08, 0.2))
 
 func lot_sel(ox: int, oy: int):
 	var w = 40
@@ -265,7 +293,118 @@ func seed_icon(kind: String, ox: int, oy: int):
 			px(ox + 6, oy + 10, pal[0]); px(ox + 7, oy + 11, pal[0]); px(ox + 8, oy + 11, pal[0])
 	auto_outline(Rect2i(ox, oy, 16, 16))
 
-# --- meadow background ---
+# --- meadow background: the Home Grove's roots run through it ---
+# A root along points `pts` (smoothed), `w0` thick at the start tapering to `w1`.
+# Roots are gathered into `net` and drawn together by `flush_roots()`, so a branch
+# grows out of its parent instead of being laid over it: where two roots overlap,
+# each pixel belongs to whichever root it lies deeper inside.
+var net = {}
+
+func root(pts: Array, w0: float, w1: float):
+	var samples = []
+	for i in range(pts.size() - 1):
+		var a: Vector2 = pts[i]
+		var b: Vector2 = pts[i + 1]
+		var pa: Vector2 = pts[i - 1] if i > 0 else a
+		var pb: Vector2 = pts[i + 2] if i + 2 < pts.size() else b
+		var steps = maxi(1, int(a.distance_to(b) * 3.0))
+		for s in steps:
+			var t = float(s) / steps
+			# Catmull-Rom between a and b
+			var p = 0.5 * ((2.0 * a) + (-pa + b) * t + (2.0 * pa - 5.0 * a + 4.0 * b - pb) * t * t + (-pa + 3.0 * a - 3.0 * b + pb) * t * t * t)
+			samples.append(p)
+	samples.append(pts[pts.size() - 1])
+	var along = 0.0
+	for i in samples.size():
+		var p: Vector2 = samples[i]
+		if i > 0:
+			along += p.distance_to(samples[i - 1])
+		var dir = (samples[mini(i + 1, samples.size() - 1)] - samples[maxi(i - 1, 0)]).normalized()
+		var nrm = Vector2(-dir.y, dir.x)
+		if nrm.y > 0.0 or (nrm.y == 0.0 and nrm.x > 0.0):
+			nrm = -nrm  # point the normal up, towards the light
+		var t = float(i) / samples.size()
+		# taper fast near the base, so a branch flares where it leaves its parent
+		var w = lerpf(w0, w1, 1.0 - pow(1.0 - t, 1.25))
+		for y in range(int(p.y - w - 1), int(p.y + w + 2)):
+			for x in range(int(p.x - w - 1), int(p.x + w + 2)):
+				var d = Vector2(x + 0.5, y + 0.5) - p
+				var dist = d.length()
+				if dist > w:
+					continue
+				var k = Vector2i(x, y)
+				if net.has(k) and net[k][3] - net[k][0] >= w - dist:
+					continue
+				net[k] = [dist, d.dot(nrm) / w, along + pts[0].x * 0.37, w]
+
+# Draws the gathered roots: shadow on the grass, then bark lit from the top left
+# with grain and knots running along it, outlined only where it meets the ground.
+func flush_roots():
+	for k in net:
+		var s = k + Vector2i(1, 2)
+		if not net.has(s) and s.y > 112 and s.x >= 0 and s.x < img.get_width() and s.y < img.get_height():
+			px(s.x, s.y, img.get_pixel(s.x, s.y).darkened(0.22))
+	# grain: each pixel falls in a band across the root; a dark line runs where
+	# the band changes, so the lines follow the root unbroken
+	var band = {}
+	for k in net:
+		var e = net[k]
+		band[k] = floori(e[1] * clampf(e[3] * 0.7, 1.0, 2.6) + 0.35 * sin(e[2] * 0.3))
+	for k in net:
+		var e = net[k]
+		var v: float = e[1]
+		var w: float = e[3]
+		var c = BARK[2]
+		if v > 0.4: c = BARK[3]
+		elif v < -0.45: c = BARK[1]
+		if v > 0.75 and w > 1.6: c = BARK[4]
+		var up = k + Vector2i(0, -1)
+		if w > 1.5 and v < 0.7 and band.has(up) and band[up] != band[k] and absf(net[up][3] - w) < 0.6:
+			c = BARK[1]
+		# a knot every so often along the thicker roots
+		if w > 2.6 and fmod(e[2] + 3.0, 23.0) < 1.8 and absf(v + 0.1) < 0.3:
+			c = BARK[0] if absf(v + 0.1) < 0.12 else BARK[1]
+		# outline only against the grass, not between roots
+		for o in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			if not net.has(k + o):
+				c = BARK[0]
+		px(k.x, k.y, c)
+	net = {}
+
+# A short rootlet from `p` heading `ang`, curling by `curl` per step.
+func rootlet(p: Vector2, ang: float, n: int, curl: float):
+	var pts = [p]
+	var d = Vector2.from_angle(ang)
+	for i in n:
+		d = d.rotated(curl)
+		pts.append(pts[pts.size() - 1] + d * 4.5)
+	root(pts, 2.8, 1.0)
+
+# Smooth rolling noise in about -1..1, for the meadow's drifts of colour.
+func meadow_noise(x: float, y: float) -> float:
+	return 0.5 * sin(x * 1.7 + sin(y * 1.3) * 1.8) + 0.3 * sin(y * 2.1 + x * 0.6) + 0.2 * sin((x - y) * 2.9)
+
+# Bare earth where a root breaks the ground, `w` wide.
+func mound(x: int, y: int, w: int):
+	for yy in range(y - 4, y + 5):
+		for xx in range(x - w - 2, x + w + 3):
+			var n = Vector2((xx - x) / float(w), (yy - y) / 3.0)
+			if n.length() <= 1.0 + 0.15 * sin(xx * 1.7 + y):
+				px(xx, yy, Color("#7a5232") if n.y < 0.0 or bayer(xx, yy) > 0.5 else Color("#5e3c22"))
+
+func moss(x: int, y: int, rng: RandomNumberGenerator):
+	for i in 5:
+		var q = Vector2i(x + rng.randi_range(-2, 2), y + rng.randi_range(-1, 0))
+		px(q.x, q.y, LEAF[3] if rng.randf() < 0.6 else LEAF[4])
+
+func shroom(x: int, y: int, cap: Color):
+	px(x, y, Color("#efe4cc")); px(x, y - 1, Color("#efe4cc"))
+	for dx in range(-2, 3):
+		px(x + dx, y - 2, cap)
+	for dx in range(-1, 2):
+		px(x + dx, y - 3, cap.lightened(0.2))
+	px(x - 1, y - 2, Color.WHITE)
+
 func bg():
 	var sky = [Color("#7fc3f0"), Color("#a8dcf5"), Color("#d2eef5"), Color("#f3f4dc")]
 	for y in 400:
@@ -276,60 +415,98 @@ func bg():
 		var h = int(98 - 5 * (0.6 * sin(x * 0.21) + 0.4 * sin(x * 0.53 + 1.0)) - 3 * abs(sin(x * 0.09)))
 		for y in range(h, 116):
 			px(x, y, Color("#3f7f4a") if y > h + 1 else Color("#5a9a5c"))
-	# meadow with soft mowing stripes
+	# meadow: soft drifts of lighter and deeper green, dithered into each other,
+	# shaded under the tree line and dappled with sun
+	var greens = [Color("#3f8a39"), Color("#4a9a40"), Color("#55a846"), Color("#62b54e"), Color("#73c45a")]
 	for y in range(112, 400):
 		for x in 180:
-			var stripe = posmod(int((y - 112) / 24), 2) == 0
-			var c = Color("#5cae4a") if stripe else Color("#55a545")
-			if posmod(y - 112, 24) == 0 and bayer(x, y) > 0.5:
-				c = Color("#55a545") if stripe else Color("#5cae4a")
-			px(x, y, c)
+			var v = 0.5 + 0.22 * meadow_noise(x * 0.07, y * 0.05) + 0.12 * meadow_noise(x * 0.23 + 7.0, y * 0.19)
+			v += 0.08 * clampf((y - 112) / 90.0, 0.0, 1.0)  # brighter away from the trees
+			v -= 0.3 * clampf(1.0 - (y - 112) / 14.0, 0.0, 1.0)  # the tree line's shade
+			v = clampf(v, 0.0, 0.999) * (greens.size() - 1)
+			var i = int(v)
+			px(x, y, greens[mini(i + 1, greens.size() - 1)] if v - i > bayer(x, y) else greens[i])
 	var rng = RandomNumberGenerator.new()
 	rng.seed = 9
-	for i in 900:
+	# grass tufts: a few blades each, lit at the tips
+	for i in 650:
+		var x = rng.randi_range(1, 178)
+		var y = rng.randi_range(118, 398)
+		var base = img.get_pixel(x, y)
+		var tip = base.lightened(0.28)
+		var blades = [[-1, 2], [0, 3], [1, 2]] if rng.randf() < 0.6 else [[0, 2], [1, 3]]
+		for bl in blades:
+			for h in bl[1]:
+				px(x + bl[0] + (1 if h == bl[1] - 1 and bl[0] > 0 else 0), y - h, tip if h == bl[1] - 1 else base.darkened(0.08))
+	# clover patches
+	for i in 14:
+		var cx = rng.randi_range(6, 174)
+		var cy = rng.randi_range(130, 392)
+		for j in 6:
+			var q = Vector2i(cx + rng.randi_range(-4, 4), cy + rng.randi_range(-2, 2))
+			px(q.x, q.y, Color("#7fd062")); px(q.x + 1, q.y, Color("#5fb04a")); px(q.x, q.y + 1, Color("#5fb04a"))
+	# specks of light and shade
+	for i in 700:
 		var x = rng.randi_range(0, 179)
 		var y = rng.randi_range(114, 399)
 		var b = img.get_pixel(x, y)
-		px(x, y, b.lightened(0.16) if rng.randf() < 0.6 else b.darkened(0.12))
-	# wooden fence along the top of the meadow
-	for x in 180:
-		for y in [112, 118]:
-			px(x, y, BARK[3]); px(x, y + 1, BARK[2]); px(x, y + 2, BARK[1])
-	for x in range(2, 180, 12):
-		for y in range(106, 126):
-			for dx in 3:
-				var c = BARK[3] if dx == 2 else BARK[2]
-				if y == 106 and dx != 1: continue
-				if y == 125: c = BARK[0]
-				px(x + dx, y, c)
-		px(x - 1, 126, Color(0.1, 0.25, 0.08, 0.35)); px(x + 3, 126, Color(0.1, 0.25, 0.08, 0.35))
-	# stepping stones between the lot columns
-	for sx in [63, 117]:
-		for y in range(136, 352, 13):
-			var ox = sx + (2 if posmod(y / 13, 2) == 0 else -2)
-			for yy in range(0, 5):
-				for xx in range(-3, 4):
-					if pow(xx / 3.5, 2) + pow((yy - 2) / 2.5, 2) <= 1.0:
-						px(ox + xx, y + yy, Color("#b7b2a3") if yy < 3 else Color("#8f8a7c"))
-			px(ox - 1, y + 1, Color("#d6d2c4"))
-	# flower borders down both sides and along the bottom
+		px(x, y, b.lightened(0.14) if rng.randf() < 0.6 else b.darkened(0.1))
+	# The Home Grove's roots wander through the meadow: no two alike, threading
+	# between the plots and breaking the ground here and there.
+	# Bare earth first, where a root breaks the ground.
+	for m in [[150, 113, 4], [178, 125, 4], [116, 398, 5], [-2, 104, 8]]:
+		mound(m[0], m[1], m[2])
+	# a great root sweeping in from behind the tree line on the left...
+	# ...curving down through the middle and on off to the right, in one unbroken run
+	root([Vector2(-8, 102), Vector2(10, 114), Vector2(32, 126), Vector2(52, 136), Vector2(63, 156),
+		Vector2(62, 178), Vector2(72, 200), Vector2(90, 216), Vector2(116, 226), Vector2(138, 223),
+		Vector2(158, 226), Vector2(174, 236), Vector2(188, 246)], 7.5, 3.0)
+	root([Vector2(40, 130), Vector2(30, 140), Vector2(25, 152), Vector2(28, 163)], 4.6, 0.8)
+
+	root([Vector2(158, 226), Vector2(166, 214), Vector2(164, 202), Vector2(170, 194)], 3.4, 1.0)
+	# a gnarled root curling in from the right and down to the bottom
+	root([Vector2(188, 296), Vector2(164, 284), Vector2(136, 278), Vector2(119, 290), Vector2(115, 318),
+		Vector2(102, 338), Vector2(80, 349), Vector2(58, 346), Vector2(48, 336)], 6.5, 2.0)
+	root([Vector2(115, 318), Vector2(126, 340), Vector2(120, 364), Vector2(124, 384), Vector2(116, 398)], 4.8, 2.4)
+	# a small arch breaking the ground in the top right
+	root([Vector2(150, 113), Vector2(158, 106), Vector2(169, 108), Vector2(178, 125)], 3.2, 2.6)
+	# a thin one creeping in on the left
+	root([Vector2(-6, 236), Vector2(9, 244), Vector2(17, 258), Vector2(13, 274), Vector2(5, 280)], 4.8, 1.2)
+	# and an old sprawl along the bottom left
+	root([Vector2(-8, 376), Vector2(16, 368), Vector2(38, 374), Vector2(50, 392), Vector2(44, 406)], 7.0, 4.0)
+	root([Vector2(16, 368), Vector2(22, 354), Vector2(34, 348)], 4.2, 1.0)
+	# fine rootlets, each its own way
+	rootlet(Vector2(62, 166), 0.3, 3, -0.4)
+	rootlet(Vector2(128, 226), 1.9, 3, 0.5)
+	rootlet(Vector2(146, 283), -1.6, 3, 0.45)
+	rootlet(Vector2(90, 346), 1.3, 3, -0.6)
+	rootlet(Vector2(26, 150), 2.6, 3, -0.5)
+	rootlet(Vector2(40, 378), -0.9, 3, -0.3)
+	rootlet(Vector2(166, 210), 0.1, 3, 0.5)
+	rootlet(Vector2(121, 362), 3.0, 3, -0.5)
+	rootlet(Vector2(24, 355), -1.9, 3, 0.4)
+	flush_roots()
+	# moss and mushrooms along the roots
+	for m in [[24, 120], [57, 140], [130, 223], [150, 279], [100, 336], [30, 368], [162, 107]]:
+		moss(m[0], m[1], rng)
+	for s in [[74, 152, Color("#d9573b")], [104, 230, Color("#c8a2ff")], [128, 302, Color("#e8b04a")],
+			[56, 358, Color("#d9573b")], [22, 268, Color("#c8a2ff")], [178, 290, Color("#d9573b")]]:
+		shroom(s[0], s[1], s[2])
+	# flowers in the corners and along the bottom
 	var fl = [Color("#fff1a8"), Color("#f6a6c1"), Color("#ffffff"), Color("#c8a2ff"), Color("#ffb36b")]
-	for i in 70:
-		var side = rng.randi_range(0, 2)
-		var x: int
-		var y: int
-		if side == 0:
-			x = rng.randi_range(1, 12); y = rng.randi_range(132, 396)
-		elif side == 1:
-			x = rng.randi_range(167, 178); y = rng.randi_range(132, 396)
-		else:
-			x = rng.randi_range(4, 175); y = rng.randi_range(334, 396)
-			if y < 340: continue
+	for i in 60:
+		var x = rng.randi_range(2, 177)
+		var y = rng.randi_range(132, 396)
+		if not (x < 12 or x > 167 or y > 342):
+			continue
+		var b = img.get_pixel(x, y)
+		if b.r > b.g:
+			continue  # not on roots or earth
 		var c = fl[rng.randi_range(0, fl.size() - 1)]
 		px(x, y + 1, LEAF[1])
 		px(x, y, Color("#ffd166")); px(x - 1, y, c); px(x + 1, y, c); px(x, y - 1, c)
-	# a couple of bushes in the corners
-	for b in [[6, 130, 9], [174, 134, 10], [8, 388, 10], [172, 392, 9]]:
+	# bushes in the corners
+	for b in [[6, 134, 9], [174, 138, 10], [8, 388, 10], [172, 392, 9]]:
 		for y in range(b[1] - b[2], b[1] + b[2]):
 			for x in range(b[0] - b[2] - 2, b[0] + b[2] + 2):
 				var n = Vector2((x - b[0]) / (b[2] + 2.0), (y - b[1]) / float(b[2]))

@@ -65,16 +65,18 @@ func new_game() -> Dictionary:
 		"queued_potions": [],  # item ids drunk in the Grove, active from the next battle
 		"seeds": {},  # seed_id -> count, found on expeditions
 		"garden": _empty_garden(),
-		"dungeons": [],  # [{ id, element, distance, scale, waves, x, y }]
-		"dungeon_respawns": [],  # [{ at, distance, x, y }]: when the next dungeons appear, how far out, and the spot they leave
+		"plots_bought": 0,  # plots bought with sunlight; the garden holds GARDEN_START_PLOTS more
+		"dungeons": [],  # [{ id, element, level, scale, waves, x, y }]
+		"dungeon_respawns": [],  # [{ at, x, y }]: when the next dungeons appear, and the spot they leave
 		"next_dungeon_id": 1,
+		"map_seed": 0,  # 0 is the first world map; each prestige rolls a new one (see MapLayout)
 	}
 
 
 # One entry per plot: { seed ("" when empty), grow_left (minutes), stored (resource -> amount) }.
 func _empty_garden() -> Array:
 	var plots := []
-	for i in GameData.GARDEN_PLOTS:
+	for i in GameData.GARDEN_START_PLOTS:
 		plots.append(_empty_plot())
 	return plots
 
@@ -93,6 +95,9 @@ func _load() -> Dictionary:
 
 # JSON has no integer type, so restore the whole-number fields after loading.
 func _normalize(s: Dictionary) -> Dictionary:
+	s["map_seed"] = int(s.get("map_seed", 0))
+	GameData.name_set = int(s["tree"].get("prestige", 0))
+	_apply_map(s["map_seed"])
 	s["tree"]["prestige"] = s["tree"].get("prestige", 0)
 	s["tree"]["tap"] = s["tree"].get("tap", GameData.PARTS["tap"]["start"])
 	for k in ["level", "xp", "prestige", "roots", "trunk", "branches", "tap"]:
@@ -130,14 +135,20 @@ func _normalize(s: Dictionary) -> Dictionary:
 						seen[key] = true
 		s["seen_enemies"] = seen
 	var garden: Array = s.get("garden", [])
-	while garden.size() < GameData.GARDEN_PLOTS:
+	if not s.has("plots_bought"):
+		# Older saves had every plot free: keep the ones in use, moved to the front.
+		garden = garden.filter(func(p): return p["seed"] != "")
+		s["plots_bought"] = maxi(0, garden.size() - GameData.GARDEN_START_PLOTS)
+	s["plots_bought"] = int(s["plots_bought"])
+	while garden.size() < GameData.GARDEN_START_PLOTS + s["plots_bought"]:
 		garden.append(_empty_plot())
 	s["garden"] = garden
 	var dungeons: Array = s.get("dungeons", [])
 	var spots := []
 	for d in dungeons:
 		d["id"] = int(d["id"])
-		d["distance"] = int(d["distance"])
+		d["level"] = int(d.get("level", d.get("distance", 1)))  # older saves kept a root distance
+		d.erase("distance")
 		# A dungeon off the dungeon spots (an older save, or a map layout change) moves to a free one.
 		var p := Vector2(d["x"], d["y"])
 		if not GameData.dungeon_spot_clear(p, spots):
@@ -149,9 +160,9 @@ func _normalize(s: Dictionary) -> Dictionary:
 	var respawns := []
 	for r in s.get("dungeon_respawns", []):
 		# Older saves kept only the time.
-		respawns.append(r if r is Dictionary else {"at": r, "distance": randi_range(1, GameData.DUNGEON_START_MAX)})
+		respawns.append(r if r is Dictionary else {"at": r})
 	for r in respawns:
-		r["distance"] = int(r["distance"])
+		r.erase("distance")
 	s["dungeon_respawns"] = respawns
 	s["next_dungeon_id"] = int(s.get("next_dungeon_id", 1))
 	return s
@@ -165,6 +176,8 @@ func save() -> void:
 
 func reset() -> void:
 	state = new_game()
+	_apply_map(0)
+	GameData.name_set = 0
 	save()
 	changed.emit()
 
@@ -204,7 +217,7 @@ func growth_blocked() -> String:
 func growth_block_msg(id: String) -> String:
 	var l: Dictionary = GameData.LEVELS[id]
 	var what := "prestige" if state["tree"]["level"] >= GameData.MAX_LEVEL else "grow to level %d" % (state["tree"]["level"] + 1)
-	return "Conquer %s (reach %d) on the World Map to %s." % [l["name"], l["distance"], what]
+	return "Conquer %s (reach %d) on the World Map to %s." % [GameData.land_name(id), l["distance"], what]
 
 func rates() -> Dictionary:
 	var m := prestige_mult()
@@ -246,7 +259,7 @@ func has_conquered_element(element: String) -> bool:
 
 ## Whether the roots reach any land of `element` (its elemental troop is shown from then on).
 func element_in_reach(element: String) -> bool:
-	for id in GameData.LEVELS:
+	for id in GameData.map_lands():
 		if element in GameData.LEVELS[id]["elements"] and can_reach(id):
 			return true
 	return false
@@ -475,7 +488,45 @@ func _prestige() -> Dictionary:
 	t["level"] = 0
 	t["xp"] = 0
 	t["prestige"] += 1
-	return _ok("The tree is reborn! Prestige %d: ×%.1f growth, sunlight, sap and troop strength." % [t["prestige"], prestige_mult()])
+	GameData.name_set = t["prestige"]
+	for part in GameData.PART_ORDER:
+		t[part] = 1
+	_new_map()
+	return _ok("The tree is reborn! Prestige %d: ×%.1f growth, sunlight, sap and troop strength. The world has shifted around it." % [t["prestige"], prestige_mult()])
+
+
+# Draws the world map for the tree's prestige: each of the first MAP_LAYOUTS
+# prestiges has its own (the last one stays after that). The lands and dungeon
+# spots move, and the dungeons out there move onto the new spots.
+func _new_map() -> void:
+	var seed: int = mini(state["tree"]["prestige"], MapLayout.MAP_LAYOUTS)
+	state["map_seed"] = seed
+	_apply_map(seed)
+	var taken := []
+	for d in state["dungeons"]:
+		var p := GameData.roll_dungeon_pos(taken)
+		d["x"] = p.x
+		d["y"] = p.y
+		taken.append(p)
+	for r in state["dungeon_respawns"]:
+		r.erase("x")
+		r.erase("y")
+
+
+func _apply_map(seed: int) -> void:
+	GameData.layout = MapLayout.generate(seed) if seed != 0 else {}
+	if seed != 0:
+		MapLayout.clear_backgrounds(seed)
+		MapLayout.prepare_background(seed)
+
+
+## Developer tool: empties the sunlight and sap stock, along with what's waiting to be collected.
+func dev_clear_stock() -> Dictionary:
+	for res in ["sunlight", "sap"]:
+		state["resources"][res] = 0
+		state["pending"][res] = 0.0
+	save()
+	return _done(_ok("Sunlight and sap set to 0."))
 
 
 ## Developer tool: meets everything the next prestige needs, then prestiges.
@@ -523,6 +574,26 @@ func upgrade_part(part: String) -> Dictionary:
 		state["resources"][res] -= cost[res]
 	state["tree"][part] += 1
 	return _done(_ok("%s upgraded to level %d." % [GameData.PARTS[part]["name"], state["tree"][part]]))
+
+
+func can_buy_plot() -> Dictionary:
+	var owned: int = state["garden"].size()
+	if owned >= GameData.GARDEN_PLOTS:
+		return _fail("The garden is full.")
+	if state["resources"]["sunlight"] < GameData.plot_cost(owned):
+		return _fail("Not enough sunlight.")
+	return _ok()
+
+
+## Buys another garden plot with sunlight.
+func buy_plot() -> Dictionary:
+	var check := can_buy_plot()
+	if not check["ok"]:
+		return _done(check)
+	state["resources"]["sunlight"] -= GameData.plot_cost(state["garden"].size())
+	state["garden"].append(_empty_plot())
+	state["plots_bought"] += 1
+	return _done(_ok("A new plot is ready for planting."))
 
 
 ## Why a troop type can't be grown yet, or "" if it is unlocked.
@@ -762,7 +833,9 @@ func apply_battle_result(b: BattleSim) -> Dictionary:
 	else:
 		for el in lvl["elements"]:
 			state["resources"]["power"][el] += power
-	var level_ups := _add_xp(xp)
+	# Battles reward sunlight, which the player channels into the tree.
+	state["resources"]["sunlight"] += xp
+	var level_ups := 0
 	save()
 	changed.emit()
 	return {"won": won, "first_clear": first_clear, "xp": xp, "sap": sap, "power": power, "elements": lvl["elements"], "lost": lost,
@@ -791,7 +864,7 @@ func apply_expedition_result(b: BattleSim) -> Dictionary:
 			state["seeds"][seed_id] = state["seeds"].get(seed_id, 0) + b.loot_seeds[seed_id]
 		for el in b.loot_power:
 			state["resources"]["power"][el] += b.loot_power[el]
-		level_ups = _add_xp(roundi(b.loot_xp * prestige_mult()))
+		state["resources"]["sunlight"] += roundi(b.loot_xp * prestige_mult())
 	save()
 	changed.emit()
 	return {"returned": returned, "xp": roundi(b.loot_xp * prestige_mult()), "items": b.loot_items, "seeds": b.loot_seeds, "power": b.loot_power, "lost": lost,
@@ -813,7 +886,7 @@ static func dungeon_id(d: Dictionary) -> String:
 
 ## The level a dungeon's battle is fought in, shaped like a GameData.LEVELS entry.
 static func dungeon_level(d: Dictionary) -> Dictionary:
-	return {"name": GameData.DUNGEON_NAMES[d["element"]], "elements": [d["element"]], "distance": d["distance"],
+	return {"name": GameData.dungeon_name(d["element"]), "elements": [d["element"]], "distance": d["level"],
 		"scale": d["scale"], "waves": d["waves"]}
 
 
@@ -834,21 +907,22 @@ func _update_dungeons() -> void:
 	var spawned := false
 	for r in due:
 		if state["dungeons"].size() + waiting.size() < GameData.DUNGEON_COUNT:
-			_spawn_dungeon(r["distance"], Vector2(r["x"], r["y"]) if r.has("x") else Vector2.INF)
+			_spawn_dungeon(Vector2(r["x"], r["y"]) if r.has("x") else Vector2.INF)
 			spawned = true
 	while state["dungeons"].size() + waiting.size() < GameData.DUNGEON_COUNT:
-		_spawn_dungeon(randi_range(1, GameData.DUNGEON_START_MAX))
+		_spawn_dungeon()
 		spawned = true
 	if spawned:
 		changed.emit()
 
 
-# A new dungeon on a free spot; `last` is the spot of the one it replaces, which it avoids.
-func _spawn_dungeon(distance: int, last := Vector2.INF) -> void:
+# A new dungeon on a free spot, its level near the tree's; `last` is the spot of
+# the one it replaces, which it avoids.
+func _spawn_dungeon(last := Vector2.INF) -> void:
 	var taken := []
 	for d in state["dungeons"]:
 		taken.append(Vector2(d["x"], d["y"]))
-	var d := GameData.roll_dungeon(GameData.ELEMENTS.pick_random(), distance)
+	var d := GameData.roll_dungeon(GameData.ELEMENTS.pick_random(), GameData.roll_dungeon_level(state["tree"]["level"]))
 	var pos := GameData.roll_dungeon_pos(taken, last)
 	d["id"] = state["next_dungeon_id"]
 	d["x"] = pos.x
@@ -861,8 +935,6 @@ func can_enter_dungeon(id: String) -> Dictionary:
 	var d := dungeon(id)
 	if d.is_empty():
 		return _fail("That dungeon has crumbled away.")
-	if d["distance"] > reach():
-		return _fail("Roots must reach distance %d." % d["distance"])
 	if formation_troops().is_empty():
 		return _fail("Place troops in your formation first.")
 	return _ok()
@@ -878,7 +950,7 @@ func apply_dungeon_result(b: BattleSim) -> Dictionary:
 	var seeds := {}
 	var d := dungeon(b.level_id)
 	if won and not d.is_empty():
-		var n := GameData.dungeon_reward_count(d["distance"])
+		var n := GameData.dungeon_reward_count(d["level"])
 		for i in n:
 			var item: String = GameData.ITEM_ORDER.pick_random()
 			items[item] = items.get(item, 0) + 1
@@ -890,8 +962,7 @@ func apply_dungeon_result(b: BattleSim) -> Dictionary:
 			state["seeds"][seed_id] = state["seeds"].get(seed_id, 0) + 1
 		state["dungeons"].erase(d)
 		# The next one remembers this spot, so it turns up somewhere else.
-		state["dungeon_respawns"].append({"at": _now() + GameData.DUNGEON_RESPAWN_MINUTES * 60.0,
-			"distance": GameData.next_dungeon_distance(d["distance"]), "x": d["x"], "y": d["y"]})
+		state["dungeon_respawns"].append({"at": _now() + GameData.DUNGEON_RESPAWN_MINUTES * 60.0, "x": d["x"], "y": d["y"]})
 	save()
 	changed.emit()
 	return {"won": won, "items": items, "seeds": seeds, "lost": lost}

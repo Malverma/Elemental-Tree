@@ -19,6 +19,8 @@ const SHEET := {
 	"dungeon_temple": [124, 34, 13, 12], "dungeon_mine": [140, 34, 13, 12],
 	# The two-element lands' trees.
 	"tree_steamvent_marsh": [62, 34, 20, 20], "tree_frostshade_barrows": [82, 34, 20, 20], "tree_blighted_heartwood": [102, 34, 20, 20],
+	# The two-element lands that only grow on the maps after a prestige.
+	"tree_mossmire_fen": [84, 56, 20, 20], "tree_cinderfrost_peak": [104, 56, 20, 20], "tree_cindergloom_wastes": [124, 56, 20, 20],
 	# Plates frame each spot on the map. They're greyscale; the game tints them
 	# with the element's colour. A two-element land uses the halves.
 	"map_plate": [0, 56, 30, 24], "map_plate_l": [30, 56, 15, 24], "map_plate_r": [45, 56, 15, 24],
@@ -363,6 +365,9 @@ func sprite_sheet():
 	tree_cypress(s["tree_steamvent_marsh"])
 	tree_barrow(s["tree_frostshade_barrows"])
 	tree_willow(s["tree_blighted_heartwood"])
+	tree_bog_oak(s["tree_mossmire_fen"])
+	tree_split_fir(s["tree_cinderfrost_peak"])
+	tree_obsidian(s["tree_cindergloom_wastes"])
 	for key in s:
 		if key.begins_with("tree_"):
 			auto_outline(Rect2i(s[key][0], s[key][1], s[key][2], s[key][3]))
@@ -716,6 +721,150 @@ func tree_willow(o: Array):
 	px(ox + 11, oy + 15, sick[3]); px(ox + 8, oy + 16, sick[2])
 	for sp in [[1, 15], [18, 14]]:
 		px(ox + sp[0], oy + sp[1], Color("#c8a2ff"))
+
+# A flame licking up from (x, base y): [x, base y, height, half width, lean], in
+# `fl` colours dark to bright.
+func flame(ox: int, oy: int, tg: Array, fl: Array):
+	for y in range(int(tg[1] - tg[2]) - 1, int(tg[1]) + 1):
+		var t = (tg[1] - (y + 0.5)) / tg[2]
+		if t < 0.0 or t > 1.0:
+			continue
+		var w = 0.85 * tg[3] * sin(PI * (0.5 + 0.5 * t)) * minf(1.0, sqrt(t * 5.0 + 0.15))
+		var cx = tg[0] + tg[4] * t * t * 3.0
+		for x in range(int(cx - w) - 1, int(cx + w) + 2):
+			var dx = absf(x + 0.5 - cx) / maxf(w, 0.3)
+			if dx > 1.0:
+				continue
+			var k = (1.0 - dx) * 0.8 + (1.0 - t) * 0.4 + bayer(x, y) * 0.15 - 0.2
+			px(ox + x, oy + y, fl[0] if k < 0.35 else (fl[1] if k < 0.62 else (fl[2] if k < 0.88 else fl[3])))
+
+# Mossmire Fen: a squat bog oak knee-deep in a lily pond, its crown half leafy
+# green, half glossy water leaves, beards of moss hanging from both.
+func tree_bog_oak(o: Array):
+	var ox = o[0]; var oy = o[1]
+	blob(ox + 10, oy + 17.6, 9.0, 2.0, POOL)
+	for x in [3, 15, 17]:
+		px(ox + x, oy + 18, Color("#9fd4ff"))
+	# lily pads, one in flower
+	for lp in [[3.5, 17.2], [16.0, 17.6]]:
+		blob(ox + lp[0], oy + lp[1], 1.6, 0.8, [LEAF[1], LEAF[2], LEAF[3]])
+	px(ox + 16, oy + 17, Color("#f6a6c1")); px(ox + 16, oy + 16, Color("#ffffff"))
+	trunk(o, 8, 17, func(y): return 2 if y < 14 else (3 if y < 16 else 4), BARK[1], BARK[2])
+	# a hollow in the old trunk, and two thick limbs forking out under the canopy
+	for h in [[9, 13], [10, 13], [9, 14], [10, 14]]:
+		px(ox + h[0], oy + h[1], Color("#1a120c"))
+	for b in [[7, 8], [6, 7], [5, 7], [12, 8], [13, 7], [14, 7]]:
+		px(ox + b[0], oy + b[1], BARK[1] if b[0] < 10 else BARK[2])
+	# knobbly knees poking out of the water either side
+	for k in [[5, 16], [5, 17], [14, 16], [14, 17], [15, 17]]:
+		px(ox + k[0], oy + k[1], BARK[2] if k[0] < 10 else BARK[3])
+	px(ox + 9, oy + 12, BARK[0]); px(ox + 10, oy + 14, BARK[0]); px(ox + 11, oy + 11, BARK[3])
+	var green = [LEAF[0], LEAF[1], LEAF[2], LEAF[3]]
+	var wet = CROWN["water"]
+	# a broad, flat canopy spreading wide over the water
+	for c in [[10.0, 5.6, 8.8, 2.6], [3.6, 6.2, 3.0, 1.8], [16.4, 6.2, 3.0, 1.8], [7.0, 3.4, 4.0, 2.0], [13.0, 3.4, 4.0, 2.0]]:
+		split_blob(ox + c[0], oy + c[1], c[2], c[3], green, wet, ox + 10, 0.1)
+	# glossy water leaves catch a shine; the green side has little buds
+	for sh in [[13, 2], [16, 5], [12, 5], [18, 6]]:
+		px(ox + sh[0], oy + sh[1], Color("#bfe6ff"))
+	for bd in [[4, 5], [7, 2], [3, 7]]:
+		px(ox + bd[0], oy + bd[1], LEAF[4])
+	# moss beards hanging from under the canopy
+	var moss = [Color("#6f8a4a"), Color("#9ab46a")]
+	for m in [[2, 8, 3], [4, 8, 4], [6, 9, 2], [13, 9, 2], [15, 8, 4], [17, 8, 3]]:
+		for i in m[2]:
+			px(ox + m[0], oy + m[1] + i, moss[0] if i < m[2] - 1 else moss[1])
+	for d in [[18, 12], [12, 14]]:
+		px(ox + d[0], oy + d[1], Color("#9fd4ff"))
+
+# Cinderfrost Peak: a tiered fir split down the middle on a crag, its left
+# boughs heavy with snow, its right boughs charred and burning, lava on that side of the rock.
+func tree_split_fir(o: Array):
+	var ox = o[0]; var oy = o[1]
+	blob(ox + 10, oy + 17.8, 8.0, 2.0, [Color("#3a3438"), Color("#5e5458"), Color("#857a7c")])
+	for x in range(2, 19):
+		for y in range(15, 20):
+			if img.get_pixel(ox + x, oy + y).a > 0.5:
+				if x < 10:
+					px(ox + x, oy + y, Color("#dcedf8") if bayer(x, y) > 0.3 else Color("#ffffff"))
+				break
+	for c in [[13, 18], [14, 19], [15, 18], [16, 19], [12, 19]]:
+		px(ox + c[0], oy + c[1], Color("#f0642d") if c[0] % 2 else Color("#ffb347"))
+	trunk(o, 15, 17, func(y): return 1, Color("#4a3020"), Color("#2e1d16"))
+	var pine = [Color("#10291f"), Color("#1f4a36"), Color("#33704f"), Color("#5f9c76")]
+	var burnt = [Color("#1a100c"), Color("#2e1d16"), Color("#4a2e20"), Color("#6b3a2a")]
+	var tips = []
+	# [top, bottom, half width], bottom tier first
+	for tr in [[8.0, 15.0, 8.5], [4.0, 11.0, 6.2], [0.0, 7.0, 4.0]]:
+		var mask = {}
+		for y in range(int(tr[0]), int(tr[1]) + 1):
+			var w = lerpf(0.6, tr[2], pow((y - tr[0]) / (tr[1] - tr[0]), 0.8))
+			for x in 20:
+				var dx = x + 0.5 - 10.0
+				if absf(dx) <= w and not (y == int(tr[1]) and posmod(x, 2) == 0):
+					mask[Vector2i(x, y)] = dx / w
+		for k in mask:
+			var fire = k.x >= 10
+			var pal = burnt if fire else pine
+			var col = pal[1] if mask[k] < -0.3 else (pal[2] if mask[k] < 0.5 else pal[3])
+			if not mask.has(k + Vector2i(0, 1)):
+				col = pal[0]
+				if fire and posmod(k.x, 2) == 1:
+					col = Color("#c8421e")  # embers glowing along the bough tips
+			elif not fire and not mask.has(k + Vector2i(0, -1)):
+				col = Color("#ffffff")  # snow piled along every bough
+			elif not fire and not mask.has(k + Vector2i(0, -2)) and bayer(k.x, k.y) > 0.35:
+				col = Color("#dcedf8")
+			elif fire and not mask.has(k + Vector2i(0, -1)):
+				col = Color("#f0642d")  # flames catching along the tops of the boughs
+			px(ox + k.x, oy + k.y, col)
+		tips.append([10.0 + tr[2] - 1.2, tr[1] - 0.5])
+	# flames on the burning side: the tier tips and the crown
+	var fl = CROWN["fire"]
+	for t in tips:
+		flame(ox, oy, [t[0], t[1], 3.5, 1.3, 0.2], [fl[1], fl[2], fl[3], Color("#ffe08a")])
+	flame(ox, oy, [12.0, 6.0, 4.0, 1.4, 0.1], [fl[1], fl[2], fl[3], Color("#ffe08a")])
+	for ic in [[4, 16], [7, 16], [3, 12], [6, 12]]:
+		px(ox + ic[0], oy + ic[1], Color("#bfe6ff"))
+	for e in [[17, 1], [19, 4]]:
+		px(ox + e[0], oy + e[1], fl[3])
+
+# Cindergloom Wastes: a twisted obsidian tree on a mound of ash, glowing cracks
+# in its bark, its boughs burning with shadow flame on one side and fire on the other.
+func tree_obsidian(o: Array):
+	var ox = o[0]; var oy = o[1]
+	blob(ox + 10, oy + 17.6, 8.0, 1.7, [Color("#2a2428"), Color("#4a4044"), Color("#6e6266")])
+	for c in [[6, 18], [7, 19], [13, 18], [14, 19]]:
+		px(ox + c[0], oy + c[1], Color("#9a6ad8") if c[0] < 10 else Color("#f0642d"))
+	var ob = [Color("#120c16"), Color("#2a2034")]
+	for y in range(9, 18):
+		var cx = 10 + roundi(sin(y * 0.7) * 0.8)
+		var w = 1 if y < 14 else 2
+		for x in range(cx - w, cx + w):
+			px(ox + x, oy + y, ob[1] if x >= cx else ob[0])
+	var bough = {}
+	for br in [[[10, 10], [8, 8], [6, 7], [4, 6], [3, 4]], [[6, 7], [5, 9], [3, 10]], [[10, 9], [12, 7], [14, 6], [16, 5], [17, 4]],
+			[[14, 6], [16, 7], [18, 7]], [[10, 8], [9, 6], [10, 5], [9, 3]]]:
+		for i in range(br.size() - 1):
+			var a = Vector2(br[i][0], br[i][1]); var b = Vector2(br[i + 1][0], br[i + 1][1])
+			for t in 7:
+				var q = a.lerp(b, t / 6.0)
+				bough[Vector2i(roundi(q.x), roundi(q.y))] = true
+	for k in bough:
+		px(ox + k.x, oy + k.y, ob[0] if k.x < 10 else ob[1])
+	# cracks glowing through the bark: violet on the shadow side, orange on the fire side
+	for c in [[9, 12], [9, 15], [8, 16], [7, 8]]:
+		px(ox + c[0], oy + c[1], Color("#9a6ad8"))
+	for c in [[10, 13], [11, 16], [10, 11], [13, 7]]:
+		px(ox + c[0], oy + c[1], Color("#f0642d"))
+	var shade_fl = [Color("#6d4a96"), Color("#9a6ad8"), Color("#c8a2ff"), Color("#f0e8ff")]
+	var fire_fl = [Color("#c8421e"), Color("#f0642d"), Color("#ffb347"), Color("#ffe08a")]
+	for tg in [[3.0, 5.0, 4.8, 1.7, -0.25], [3.0, 10.5, 3.8, 1.4, -0.1], [9.0, 4.0, 4.0, 1.5, 0.0], [6.0, 7.5, 2.6, 1.1, 0.0]]:
+		flame(ox, oy, tg, shade_fl)
+	for tg in [[17.0, 5.0, 4.8, 1.7, 0.25], [18.0, 8.0, 3.8, 1.4, 0.1], [14.0, 6.5, 2.6, 1.1, 0.0]]:
+		flame(ox, oy, tg, fire_fl)
+	for e in [[1, 0], [6, 1], [12, 0], [19, 1]]:
+		px(ox + e[0], oy + e[1], Color("#c8a2ff") if e[0] < 10 else Color("#ffb347"))
 
 # A framed oval: dark outline, a shaded ring, and a see-through middle.
 # `rim(angle)` scales the radius, for the dungeon's craggy rock ring.

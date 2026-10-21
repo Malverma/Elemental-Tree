@@ -146,7 +146,7 @@ func _refresh_buffs() -> void:
 static func _loot_text(b: BattleSim) -> String:
 	var items := b.loot_items
 	var seeds := b.loot_seeds
-	var parts := ["+%d growth" % b.loot_xp]
+	var parts := ["+%d sunlight" % b.loot_xp]
 	for el in GameData.ELEMENTS:
 		if b.loot_power.get(el, 0) > 0:
 			parts.append("%d %s power" % [b.loot_power[el], el])
@@ -262,14 +262,11 @@ func _show_result() -> void:
 	t.add_theme_font_size_override("font_size", 38)
 	box.add_child(t)
 	if res["first_clear"]:
-		var c := UI.label("%s is conquered! It now yields %d %s power per day." % [sim.level["name"], sim.level["daily_yield"], GameData.elements_text(sim.level_id)], "Heading", true)
+		var c := UI.label("%s is conquered! It now yields %d %s power per day." % [GameData.land_name(sim.level_id), sim.level["daily_yield"], GameData.elements_text(sim.level_id)], "Heading", true)
 		c.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		c.add_theme_color_override("font_color", UI.ACCENT)
 		box.add_child(c)
-	var growth := "+%d growth" % res["xp"]
-	if res["level_ups"] > 0:
-		growth += " · Tree reached level %d!" % res["new_level"]
-	box.add_child(UI.label(growth, "", true))
+	box.add_child(UI.label("+%d sunlight" % res["xp"], "", true))
 	if res["sap"] > 0:
 		box.add_child(UI.label("+%d sap" % res["sap"]))
 	if res["power"] > 0:
@@ -344,10 +341,7 @@ func _show_expedition_result() -> void:
 	box.add_child(t)
 	box.add_child(UI.label("Waves cleared: %d" % sim.waves_cleared))
 	if res["returned"]:
-		var growth := "+%d growth" % res["xp"]
-		if res["level_ups"] > 0:
-			growth += " · Tree reached level %d!" % res["new_level"]
-		box.add_child(UI.label(growth, "Heading"))
+		box.add_child(UI.label("+%d sunlight" % res["xp"], "Heading"))
 		for el in GameData.ELEMENTS:
 			if res["power"].get(el, 0) > 0:
 				var row := UI.hbox(8)

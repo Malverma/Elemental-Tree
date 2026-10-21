@@ -16,6 +16,7 @@ var main: Control
 var _scene: BarracksScene
 var _margin: MarginContainer
 var _counts: Label
+var _attack: Button
 var _hint: Label
 var _lower: ScrollContainer
 var _below: Control  # everything under the stumps, where a dragged troop goes back to the roster
@@ -58,6 +59,10 @@ func _ready() -> void:
 	_counts = UI.label("", "SceneSmall")
 	_counts.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(_counts)
+	# Opened from the map's "Grow troops": a way back out to that land or dungeon.
+	_attack = UI.button("Attack", main.attack_target, "PrimaryButton")
+	_attack.size_flags_horizontal = SIZE_SHRINK_CENTER
+	col.add_child(_attack)
 
 	_below = Control.new()
 	_below.mouse_filter = MOUSE_FILTER_PASS
@@ -153,6 +158,11 @@ func refresh() -> void:
 		main.ui["selected_troop"] = sel
 	_scene.selected_troop = sel
 	_scene.sync()
+	var target: String = main.ui["attack_target"]
+	if target.begins_with("dungeon_") and Game.dungeon(target).is_empty():
+		target = ""  # cleared, so it crumbled
+		main.ui["attack_target"] = target
+	_attack.visible = target != ""
 	_counts.text = "Formation %d / %d  ·  ▲ the front row faces the enemy" % [s["formation"].size(), Game.formation_slots()]
 	_bench_title.text = "Roster %d / %d" % [s["troops"].size(), Game.roster_cap()]
 	if sel >= 0:

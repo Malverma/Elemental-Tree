@@ -1,16 +1,20 @@
 class_name GardenScene
 extends PixelScene
-## The Garden in pixel art: a fenced meadow with GARDEN_PLOTS lots. Plants sway
-## in the breeze; grown plants with something to collect show a bobbing badge,
-## growing ones a progress bar. Tapping a lot emits `lot_tapped`.
+## The Garden in pixel art: a meadow threaded with the tree's roots, with a
+## root-ringed lot for each plot the garden owns (up to GARDEN_PLOTS). Plants
+## sway in the breeze; grown plants with something to collect show a bobbing
+## badge, growing ones a progress bar. The spot for the next plot shows faintly.
+## Tapping a lot emits `lot_tapped`, the next plot's spot `buy_tapped`.
 
 signal lot_tapped(index: int, global_pos: Vector2)
+signal buy_tapped
 
 ## Lot centres in design px (3 columns x 4 rows), matching art/gen/garden.gd.
 const LOT_COLS := [36, 90, 144]
 const LOT_ROWS := [150, 200, 250, 300]
 
 var selected := -1
+var _lots: Array[Node2D] = []
 var _plants: Array[Sprite2D] = []
 var _seeds: Array[String] = []
 var _sels: Array[Sprite2D] = []
@@ -37,6 +41,7 @@ func _ready() -> void:
 		var lot := Node2D.new()
 		lot.position = c
 		world.add_child(lot)
+		_lots.append(lot)
 		sprite("garden_lot", Vector2(-20, -12), lot)
 		var sel := sprite("garden_lot_sel", Vector2(-21, -14), lot)
 		sel.visible = i == selected
@@ -58,10 +63,14 @@ func _ready() -> void:
 	sync()
 
 
-## Matches the plant sprites to the garden state.
+## Matches the lots and plant sprites to the garden state.
 func sync() -> void:
 	var garden: Array = Game.state["garden"]
-	for i in _plants.size():
+	for i in _lots.size():
+		# Owned plots show in full, the next one to buy faintly, the rest not at all.
+		_lots[i].visible = i <= garden.size()
+		_lots[i].modulate.a = 1.0 if i < garden.size() else 0.4
+	for i in garden.size():
 		var plot: Dictionary = garden[i]
 		var key: String = "" if plot["seed"] == "" else ("sprout" if plot["grow_left"] > 0.0 else plot["seed"])
 		if key == _seeds[i]:
@@ -73,6 +82,10 @@ func sync() -> void:
 		elif key != "":
 			_plants[i].texture = UI.tex(GameData.SEEDS[key]["plant_img"])
 	_marks.queue_redraw()
+
+
+func _buyable() -> bool:
+	return Game.state["garden"].size() < GameData.GARDEN_PLOTS
 
 
 func set_selected(i: int) -> void:
@@ -123,12 +136,30 @@ func _draw_marks() -> void:
 			_marks.draw_arc(b, r, 0, TAU, 32, UI.ACCENT, s * 0.75, true)
 			var icon := UI.crisp(UI.RES_ICON.get(res, "icon_" + res))
 			_marks.draw_texture_rect(icon, Rect2(b - Vector2(r, r) * 0.7, Vector2(r, r) * 1.4), false)
+	if _buyable():
+		# The next plot's spot: a sunlight price tag.
+		var c := origin + lot_center(garden.size()) * s
+		var font := UI.bold_font()
+		var fs := 16
+		var text := UI.fmt(GameData.plot_cost(garden.size()))
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + fs + 22.0
+		var box := Rect2(c.x - w / 2.0, c.y - fs * 0.5 - 6.0, w, fs + 12.0)
+		var tab := StyleBoxFlat.new()
+		tab.bg_color = Color(UI.NIGHT, 0.8)
+		tab.set_corner_radius_all(8)
+		_marks.draw_style_box(tab, box)
+		_marks.draw_texture_rect(UI.crisp("icon_sunlight"), Rect2(box.position + Vector2(6, 6), Vector2(fs, fs)), false)
+		_marks.draw_string(font, Vector2(box.position.x + fs + 10, box.position.y + fs + 4), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
 
 
 func _tap(local: Vector2) -> void:
 	var p := to_design(local)
-	for i in GameData.GARDEN_PLOTS:
+	var owned: int = Game.state["garden"].size()
+	for i in mini(owned + 1, GameData.GARDEN_PLOTS):
 		var c := lot_center(i)
 		if Rect2(c.x - 21, c.y - 28, 42, 44).has_point(p):
-			lot_tapped.emit(i, get_global_transform() * local)
+			if i < owned:
+				lot_tapped.emit(i, get_global_transform() * local)
+			else:
+				buy_tapped.emit()
 			return

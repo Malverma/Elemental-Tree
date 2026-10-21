@@ -65,10 +65,10 @@ func _set_scene() -> void:
 
 
 func _map_state() -> String:
-	var parts := [str(Game.reach())]
+	var parts := [str(Game.reach()), "m%d" % Game.state["map_seed"]]
 	for d in Game.state["dungeons"]:
 		parts.append("d%d" % d["id"])
-	for id in GameData.LEVEL_ORDER:
+	for id in GameData.map_lands():
 		if Game.level_state(id)["conquered"]:
 			parts.append(id)
 	return ",".join(parts)
@@ -112,7 +112,7 @@ func _collect_land(id: String) -> void:
 	var amount := floori(Game.level_state(id)["stored"])
 	if not Game.collect_level(id)["ok"]:
 		return
-	var at := _scene.design_to_global(MapScene.to_art(GameData.LEVELS[id]["pos"]) + MapScene.LAND_PLATE)
+	var at := _scene.design_to_global(MapScene.to_art(GameData.node_pos(id)) + MapScene.LAND_PLATE)
 	var els: Array = GameData.LEVELS[id]["elements"]
 	for i in els.size():
 		var off := Vector2((i - (els.size() - 1) / 2.0) * 130.0, i * 34.0)
@@ -143,17 +143,18 @@ func _build_card(id: String) -> void:
 		hint = "" if check["ok"] else check["msg"]
 	elif id.begins_with("dungeon_"):
 		var d := Game.dungeon(id)
-		title = GameData.DUNGEON_NAMES[d["element"]]
-		status = "Dungeon · %s · Reach %d" % [UI.capitalize(d["element"]), d["distance"]]
+		title = GameData.dungeon_name(d["element"])
+		status = "Dungeon · %s · Level %d" % [UI.capitalize(d["element"]), d["level"]]
 		var enter := Game.can_enter_dungeon(id)
 		var go := UI.button("Enter dungeon", main.start_dungeon.bind(id), "PrimaryButton")
 		go.disabled = not enter["ok"]
 		buttons.append(go)
+		buttons.append(UI.button("Grow troops", main.grow_troops_for.bind(id)))
 		hint = "" if enter["ok"] else enter["msg"]
 	else:
 		var l: Dictionary = GameData.LEVELS[id]
 		var ls := Game.level_state(id)
-		title = l["name"]
+		title = GameData.land_name(id)
 		if not l["playable"]:
 			status = "Coming soon"
 		else:
@@ -167,6 +168,7 @@ func _build_card(id: String) -> void:
 			var attack := UI.button("Battle again" if ls["conquered"] else "Attack", main.start_battle.bind(id), "PrimaryButton")
 			attack.disabled = not enter["ok"]
 			buttons.append(attack)
+			buttons.append(UI.button("Grow troops", main.grow_troops_for.bind(id)))
 			hint = "" if enter["ok"] else enter["msg"]
 
 	var row := UI.hbox(12)
@@ -225,7 +227,7 @@ func _grove_info() -> Control:
 	box.add_child(UI.label("Then the cycle repeats, stronger each time.", "Small", true))
 
 	box.add_child(UI.label("Rewards", "Heading"))
-	box.add_child(UI.label("• Growth for every wave cleared (double for bosses)", "", true))
+	box.add_child(UI.label("• Sunlight for every wave cleared (double for bosses)", "", true))
 	box.add_child(UI.label("• %d elemental power for each foe defeated, of that foe's element" % GameData.EXPEDITION_KILL_POWER, "", true))
 	var drops := UI.hbox(6)
 	drops.add_child(UI.label("• Potions and garden seeds"))
@@ -256,7 +258,7 @@ func _level_info(id: String) -> Control:
 	var head := UI.hbox(10)
 	for el in l["elements"]:
 		head.add_child(UI.icon("icon_" + el, 34))
-	head.add_child(UI.label(l["name"], "Title", true))
+	head.add_child(UI.label(GameData.land_name(id), "Title", true))
 	box.add_child(head)
 	box.add_child(UI.label("%s · %s · Root distance %d" % [l["biome"], " + ".join(l["elements"].map(UI.capitalize)), l["distance"]], "Muted", true))
 	if not l["playable"]:
@@ -286,8 +288,8 @@ func _level_info(id: String) -> Control:
 	box.add_child(UI.label("Rewards", "Heading"))
 	var r: Dictionary = l["rewards"]
 	var el := GameData.elements_text(id)
-	box.add_child(UI.label("First clear: %d growth, %d sap, %d %s power" % [r["first_xp"], r["sap"], GameData.power_reward(id, true), el], "", true))
-	box.add_child(UI.label("Replays: %d growth, %d sap, %d %s power" % [r["xp"], r["sap"], GameData.power_reward(id, false), el], "", true))
+	box.add_child(UI.label("First clear: %d sunlight, %d sap, %d %s power" % [r["first_xp"], r["sap"], GameData.power_reward(id, true), el], "", true))
+	box.add_child(UI.label("Replays: %d sunlight, %d sap, %d %s power" % [r["xp"], r["sap"], GameData.power_reward(id, false), el], "", true))
 	box.add_child(UI.label("Once conquered: %d %s power per day" % [l["daily_yield"], el], "", true))
 
 	if ls["conquered"]:
@@ -346,10 +348,10 @@ func _dungeon_info(id: String, d: Dictionary) -> Control:
 	var box := UI.vbox(10)
 	var head := UI.hbox(10)
 	head.add_child(UI.icon(MapScene.dungeon_art(d), 39))
-	head.add_child(UI.label(GameData.DUNGEON_NAMES[el], "Title", true))
+	head.add_child(UI.label(GameData.dungeon_name(el), "Title", true))
 	box.add_child(head)
 	var sub := UI.hbox(6)
-	sub.add_child(UI.label("Dungeon · %s · Root distance %d" % [UI.capitalize(el), d["distance"]], "Muted", true))
+	sub.add_child(UI.label("Dungeon · %s · Level %d" % [UI.capitalize(el), d["level"]], "Muted", true))
 	sub.add_child(UI.icon("icon_" + el, 24))
 	box.add_child(sub)
 	box.add_child(UI.label("A dungeon has opened up. Clear it before it's gone: once cleared it crumbles, and a new one appears somewhere on the map %d minutes later." % GameData.DUNGEON_RESPAWN_MINUTES, "", true))
@@ -364,7 +366,7 @@ func _dungeon_info(id: String, d: Dictionary) -> Control:
 	box.add_child(tip)
 
 	box.add_child(UI.label("Rewards", "Heading"))
-	var n := GameData.dungeon_reward_count(d["distance"])
+	var n := GameData.dungeon_reward_count(d["level"])
 	var potions := UI.hbox(6)
 	potions.add_child(UI.label("• %d random potion%s" % [n, "" if n == 1 else "s"]))
 	potions.add_child(UI.icon(GameData.ITEMS["thorn_draught"]["img"], 28))

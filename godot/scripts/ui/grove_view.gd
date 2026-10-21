@@ -125,10 +125,10 @@ func build_sheet() -> Control:
 	bar.show_percentage = false
 	g.add_child(bar)
 	if maxed:
-		g.add_child(UI.label("%d / %d sunlight. The tree is fully grown. Prestige to return it to level 0 with +%d%% growth, sunlight and sap production and troop HP and damage."
+		g.add_child(UI.label("%d / %d sunlight. The tree is fully grown. Prestige to return it to level 0 with +%d%% growth, sunlight and sap production and troop HP and damage. Its upgrades drop back to level 1 and the world map is redrawn with the lands in new places."
 			% [tree["xp"], need, roundi(GameData.PRESTIGE_BONUS * 100)], "Small", true))
 	else:
-		g.add_child(UI.label("%d / %d sunlight. Channel sunlight or win battles to grow. Each tree part can be upgraded up to the tree's level."
+		g.add_child(UI.label("%d / %d sunlight. Channel sunlight to grow; battles and expeditions bring more. Each tree part can be upgraded up to the tree's level."
 			% [tree["xp"], need], "Small", true))
 	var ch_max := UI.button("Prestige" if maxed else "Channel to next level", Game.channel.bind(-1))
 	ch_max.size_flags_horizontal = SIZE_EXPAND_FILL

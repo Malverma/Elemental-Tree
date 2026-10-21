@@ -5,8 +5,10 @@
 # sky between them.
 # One stage per tree level: a sprout, a seedling, then the tree growing from a
 # sapling into the full Elemental Tree, which hangs a fruit of each element.
-# params: stage (0-9), part ("trunk" | "crown")
+# params: stage (0-9), part ("trunk" | "crown"), scale (optional: draws the
+# stage's tree at this size instead of its own, as the app icon does)
 var img: Image
+var scale_override := 0.0
 const W := 176
 const H := 200
 const B := Vector2(88, 194)
@@ -53,6 +55,14 @@ const CLUMPS := [
 	[Vector2(2, -92), 16.0, 10.0, 7],
 	[Vector2(-14, -174), 18.0, 10.0, 8],
 	[Vector2(18, -172), 16.0, 10.0, 8],
+	# the heart of the crown, filling in where the boughs fork as the tree grows
+	[Vector2(-22, -96), 20.0, 13.0, 6],
+	[Vector2(24, -98), 20.0, 13.0, 6],
+	[Vector2(-2, -118), 22.0, 13.0, 6],
+	[Vector2(-34, -128), 16.0, 11.0, 7],
+	[Vector2(36, -126), 16.0, 11.0, 7],
+	[Vector2(0, -82), 18.0, 10.0, 8],
+	[Vector2(-4, -140), 20.0, 12.0, 8],
 ]
 # roots: [end x, how far down they reach, width, from stage]
 const ROOTS := [
@@ -130,8 +140,11 @@ func tube(a: Vector2, c: Vector2, b: Vector2, w0: float, w1: float, sway := 0.0,
 			var u = (p - pts[bi]).dot(nrm) / maxf(w, 1.0)
 			px(x, y, bark(clampf(u, -1, 1), t * n, maxf(1.5, w / 2.2), x, y))
 
+func stage_scale(stage: int) -> float:
+	return scale_override if scale_override > 0.0 else SCALE[stage]
+
 func draw_trunk(stage: int):
-	var f: float = SCALE[stage]
+	var f: float = stage_scale(stage)
 	var h = TRUNK["h"] * f
 	var bw = maxf(1.5, TRUNK["bw"] * f)
 	var tw = maxf(1.0, TRUNK["tw"] * f)
@@ -167,12 +180,13 @@ func draw_trunk(stage: int):
 				px(x + 1, y, LEAF[4]); px(x - 1, y - 1, LEAF[3])
 	if stage == 9:
 		# a glowing knot in the heart of the trunk
-		var k = Vector2(B.x + 3, B.y - 30)
+		var k = B + Vector2(3, -30) * f
+		var kr = maxf(1.6, 3.4 * f)
 		for y in range(int(k.y) - 4, int(k.y) + 5):
 			for x in range(int(k.x) - 4, int(k.x) + 5):
 				var d = Vector2(x + 0.5, y + 0.5).distance_to(k)
-				if d <= 3.4:
-					px(x, y, SAP[3] if d < 1.2 else (SAP[2] if d < 2.3 else SAP[0]))
+				if d <= kr:
+					px(x, y, SAP[3] if d < kr * 0.35 else (SAP[2] if d < kr * 0.68 else SAP[0]))
 	outline(BARK[0])
 	# soft ground shadow
 	var sw = 14 + 60 * f
@@ -259,7 +273,7 @@ func draw_crown(stage: int):
 		leaf_shape(B + Vector2(0, -29), deg_to_rad(-70), 6, 2.0)
 		outline(LEAF[0])
 		return
-	var f: float = SCALE[stage]
+	var f: float = stage_scale(stage)
 	var rng = RandomNumberGenerator.new()
 	rng.seed = 17 + stage * 7
 	var list = []
@@ -276,27 +290,29 @@ func draw_crown(stage: int):
 	if stage == 9:
 		# a fruit of each element hanging under the crown, glowing
 		for i in ORBS.size():
-			var fx = int(B.x + [-56, -24, 4, 30, 58][i])
+			var fx = int(B.x + [-56, -24, 4, 30, 58][i] * f)
 			var fy = 0
-			for y in range(int(B.y) - 50, 0, -1):
+			for y in range(int(B.y - 50 * f), 0, -1):
 				if solid(fx, y):
 					fy = y
 					break
 			if fy == 0:
 				continue
-			var o = Vector2(fx, fy + 4 + (i % 2) * 2)
+			var orb = maxf(1.5, 3.0 * f)
+			var o = Vector2(fx, fy + roundi((4 + (i % 2) * 2) * f))
 			for y in range(fy + 1, int(o.y) - 1):
 				px(fx, y, LEAF[0])
 			for y in range(int(o.y) - 3, int(o.y) + 4):
 				for x in range(int(o.x) - 3, int(o.x) + 4):
 					var d = Vector2(x, y).distance_to(o)
-					if d <= 3.0:
-						px(x, y, ORBS[i].darkened(0.5) if d > 2.3 else (ORBS[i].lightened(0.35) if d < 1.2 else ORBS[i]))
+					if d <= orb:
+						px(x, y, ORBS[i].darkened(0.5) if d > orb * 0.77 else (ORBS[i].lightened(0.35) if d < orb * 0.4 else ORBS[i]))
 			px(int(o.x) + 1, int(o.y) - 1, Color.WHITE)
 
 func run(api, image, project, params):
 	img = Image.create(W, H, false, Image.FORMAT_RGBA8)
 	var stage: int = int(params.get("stage", SCALE.size() - 1))
+	scale_override = float(params.get("scale", 0.0))
 	if params.get("part", "trunk") == "trunk":
 		if stage < 2:
 			# a slender stem

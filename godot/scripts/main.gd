@@ -29,7 +29,7 @@ const SHEET_HEIGHT := 0.8  # share of the screen the pull-up sheet covers
 var tab := "grove"
 ## Screen state that survives redraws.
 ## selected_level is a land id, a dungeon id ("dungeon_<n>"), or "grove" for the Home Grove (expeditions).
-var ui := {"selected_plot": -1, "selected_troop": -1, "selected_level": "sunny_meadow"}
+var ui := {"selected_plot": -1, "selected_troop": -1, "selected_level": "sunny_meadow", "attack_target": ""}
 
 var _content: Control
 var _view: Control
@@ -291,6 +291,8 @@ func switch_tab(id: String, dir := 0) -> void:
 		return
 	if id == tab and _view:
 		return
+	if id != "barracks":
+		ui["attack_target"] = ""
 	close_sheet(false)
 	tab = id
 	if dir == 0 or _view == null:
@@ -639,6 +641,25 @@ func start_dungeon(id: String) -> void:
 		Game.dungeon_level(Game.dungeon(id))))
 
 
+## Opens the Barracks to grow troops for a land or dungeon, with an Attack
+## button there to set out for it once the formation is ready.
+func grow_troops_for(id: String) -> void:
+	ui["attack_target"] = id
+	if tab == "barracks":
+		render()
+	else:
+		_on_page_pressed("barracks")
+
+
+## Attacks the land or dungeon the Barracks was opened for.
+func attack_target() -> void:
+	var id: String = ui["attack_target"]
+	if id.begins_with("dungeon_"):
+		start_dungeon(id)
+	elif id != "":
+		start_battle(id)
+
+
 ## Sends the formation out from the Home Grove on an endless expedition.
 func start_expedition() -> void:
 	var check := Game.can_start_expedition()
@@ -692,9 +713,10 @@ func _menu_content() -> Control:
 		col.add_child(UI.button("+1h", func() -> void:
 			Game.advance(60)
 			Game.changed.emit(), "PrimaryButton"))
+		col.add_child(UI.button("Zero sunlight & sap", Game.dev_clear_stock, "PrimaryButton"))
 		col.add_child(UI.button("Prestige", Game.dev_prestige, "PrimaryButton"))
 		col.add_child(UI.button("Reset", _confirm_reset, "DangerButton"))
-		col.add_child(UI.label("+1h skips an hour of growth. Prestige conquers the lands the tree needs, grows it to level %d and prestiges. Reset deletes the save." % GameData.MAX_LEVEL, "Small", true))
+		col.add_child(UI.label("+1h skips an hour of growth. Zero empties your sunlight and sap. Prestige conquers the lands the tree needs, grows it to level %d and prestiges. Reset deletes the save." % GameData.MAX_LEVEL, "Small", true))
 	else:
 		col.add_child(UI.label("Nothing here yet.", "Muted"))
 	return col

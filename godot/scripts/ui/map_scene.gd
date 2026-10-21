@@ -46,6 +46,8 @@ var _hue: Node2D
 var _hue_rings := {}
 var _labels: Control
 var _time := 0.0
+var _bg: Sprite2D
+var _bg_waiting := false
 
 
 static func dungeon_art(d: Dictionary) -> String:
@@ -68,7 +70,19 @@ func _init(p_selected: String) -> void:
 
 
 func _ready() -> void:
-	sprite("map_bg", Vector2.ZERO)
+	if Game.state["map_seed"] == 0:
+		sprite("map_bg", Vector2.ZERO)
+	else:
+		# A new map's terrain is painted on a worker thread; plain grass shows until it's done.
+		_bg = Sprite2D.new()
+		_bg.centered = false
+		_bg.texture = MapLayout.background(Game.state["map_seed"])
+		if _bg.texture == null:
+			var fill := Image.create_empty(int(design.x), int(design.y), false, Image.FORMAT_RGBA8)
+			fill.fill(Color("#5cae4a"))
+			_bg.texture = ImageTexture.create_from_image(fill)
+			_bg_waiting = true
+		world.add_child(_bg)
 	_build_paths()
 	_roots = Node2D.new()
 	_roots.draw.connect(_draw_roots)
@@ -77,7 +91,7 @@ func _ready() -> void:
 	_hue = Node2D.new()
 	_hue.draw.connect(_draw_hue)
 	world.add_child(_hue)
-	for id in GameData.LEVEL_ORDER:
+	for id in GameData.map_lands():
 		_hue_rings[id] = _rings_around(_plates_for(id))
 	_hl = Node2D.new()
 	_hl.draw.connect(_draw_selection)
@@ -88,9 +102,9 @@ func _ready() -> void:
 	_plate("map_plate_l", g + GROVE_PLATE, UI.ROOT_GLOW)
 	_plate("map_plate_r", g + GROVE_PLATE, UI.ROOT_GLOW)
 	_place("map_grove", g, Vector2(14, 28), Color.WHITE)
-	for id in GameData.LEVEL_ORDER:
+	for id in GameData.map_lands():
 		var l: Dictionary = GameData.LEVELS[id]
-		var p := to_art(l["pos"])
+		var p := to_art(GameData.node_pos(id))
 		var dim := 1.0
 		if not l["playable"]:
 			dim = 0.45
@@ -107,10 +121,9 @@ func _ready() -> void:
 		if Game.level_state(id)["conquered"]:
 			_place("map_flag", p + Vector2(10, -13), Vector2(1, 10), Color.WHITE)
 	for d in Game.state["dungeons"]:
-		var reached: bool = d["distance"] <= Game.reach()
 		var at := to_art(Vector2(d["x"], d["y"]))
-		_plate("map_plate_dungeon", at + DUNGEON_PLATE, _tint(d["element"], 1.0 if reached else 0.6))
-		_place(dungeon_art(d), at, Vector2(6, 9), Color.WHITE if reached else Color(0.7, 0.7, 0.75))
+		_plate("map_plate_dungeon", at + DUNGEON_PLATE, _tint(d["element"], 1.0))
+		_place(dungeon_art(d), at, Vector2(6, 9), Color.WHITE)
 
 	set_selected(selected)
 
@@ -147,7 +160,7 @@ func _build_paths() -> void:
 	var reach := Game.reach()
 	for id in nodes:
 		var n: Dictionary = nodes[id]
-		var pts := GameData.root_path_points(n["from"], id)
+		var pts := GameData.root_path_points(GameData.node_from(id), id)
 		var run: Array[Vector2i] = []
 		for i in range(pts.size() - 1):
 			var a := to_art(pts[i])
@@ -174,7 +187,7 @@ func _plates_for(id: String) -> Array:
 		var g := to_art(GameData.GROVE) + GROVE_PLATE
 		plates = [["map_plate_l", g], ["map_plate_r", g]]
 	elif GameData.LEVELS.has(id):
-		var p := to_art(GameData.LEVELS[id]["pos"]) + LAND_PLATE
+		var p := to_art(GameData.node_pos(id)) + LAND_PLATE
 		plates = [["map_plate", p]] if GameData.LEVELS[id]["elements"].size() == 1 else [["map_plate_l", p], ["map_plate_r", p]]
 	else:
 		var d := Game.dungeon(id)
@@ -234,7 +247,7 @@ func _draw_hue() -> void:
 			continue
 		var strength := lerpf(0.3, 1.0, clampf((fill - HUE_FROM) / (1.0 - HUE_FROM), 0.0, 1.0)) * pulse
 		var els: Array = GameData.LEVELS[id]["elements"]
-		var mid := roundi(to_art(GameData.LEVELS[id]["pos"]).x + LAND_PLATE.x)
+		var mid := roundi(to_art(GameData.node_pos(id)).x + LAND_PLATE.x)
 		var rings: Array = _hue_rings[id]
 		for ring in rings.size():
 			for q in rings[ring]:
@@ -244,6 +257,11 @@ func _draw_hue() -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	if _bg_waiting:
+		var tex := MapLayout.background(Game.state["map_seed"])
+		if tex:
+			_bg.texture = tex
+			_bg_waiting = false
 	_hue.queue_redraw()
 	_roots.queue_redraw()
 	_hl.queue_redraw()
@@ -279,15 +297,14 @@ func _draw_labels() -> void:
 	tab.bg_color = Color(UI.NIGHT, 0.82)
 	tab.set_corner_radius_all(8)
 	var lines := [[to_art(GameData.GROVE) + GROVE_PLATE, "Home Grove", Color.WHITE, false, LAND_HALF]]
-	for id in GameData.LEVEL_ORDER:
+	for id in GameData.map_lands():
 		var l: Dictionary = GameData.LEVELS[id]
-		var c := to_art(l["pos"]) + LAND_PLATE
+		var c := to_art(GameData.node_pos(id)) + LAND_PLATE
 		var col := Color.WHITE if Game.can_reach(id) else Color(0.75, 0.75, 0.8)
-		lines.append([c, l["name"], col, GameData.label_above(id), LAND_HALF])
+		lines.append([c, GameData.land_name(id), col, GameData.label_above(id), LAND_HALF])
 	for d in Game.state["dungeons"]:
 		var c := to_art(Vector2(d["x"], d["y"])) + DUNGEON_PLATE
-		var col := Color.WHITE if d["distance"] <= Game.reach() else Color(0.75, 0.75, 0.8)
-		lines.append([c, GameData.DUNGEON_NAMES[d["element"]], col, false, DUNGEON_HALF])
+		lines.append([c, GameData.dungeon_name(d["element"]), Color.WHITE, false, DUNGEON_HALF])
 	for line in lines:
 		var text: String = line[1]
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 16.0
@@ -306,8 +323,8 @@ func _tap(local: Vector2) -> void:
 	var best := ""
 	var best_d := 15.0
 	var spots := [["grove", to_art(GameData.GROVE) + GROVE_PLATE]]
-	for id in GameData.LEVEL_ORDER:
-		spots.append([id, to_art(GameData.LEVELS[id]["pos"]) + LAND_PLATE])
+	for id in GameData.map_lands():
+		spots.append([id, to_art(GameData.node_pos(id)) + LAND_PLATE])
 	for d in Game.state["dungeons"]:
 		spots.append([Game.dungeon_id(d), to_art(Vector2(d["x"], d["y"])) + DUNGEON_PLATE])
 	for s in spots:

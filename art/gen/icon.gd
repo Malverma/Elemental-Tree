@@ -56,40 +56,42 @@ func scenery(n: int):
 		var c = [Color("#fff1a8"), Color.WHITE, Color("#f6a6c1")][i % 3]
 		px(x, y, c)
 
-# The Grove's grown tree, drawn by tree.gd at `s` times its size; its base is at TREE_BASE.
+# The Grove's full-grown Elemental Tree (tree.gd's last stage), drawn at `s`
+# times its size; its base is at TREE_BASE.
 func grove_tree(s: float) -> Image:
 	var g = GDScript.new()
 	g.source_code = FileAccess.get_file_as_string(TREE_GEN)
 	g.reload()
-	var t = g.new()
-	var big: Dictionary = t.STAGES[3]
-	var st = {"h": int(big["h"] * s), "bw": big["bw"] * s, "tw": maxf(1.5, big["tw"] * s), "flare": big["flare"] * s, "clusters": []}
-	for c in big["clusters"]:
-		st["clusters"].append([c[0] * s, c[1] * s, c[2] * s])
-	t.img = Image.create(t.W, t.H, false, Image.FORMAT_RGBA8)
-	t.draw_trunk(st)
-	var out: Image = t.img
-	t.img = Image.create(t.W, t.H, false, Image.FORMAT_RGBA8)
-	t.draw_crown(st, 3)
-	out.blend_rect(t.img, Rect2i(0, 0, t.W, t.H), Vector2i.ZERO)
+	var out: Image = g.new().run(null, null, null, {"stage": 9, "part": "trunk", "scale": s})
+	var crown: Image = g.new().run(null, null, null, {"stage": 9, "part": "crown", "scale": s})
+	out.blend_rect(crown, Rect2i(0, 0, crown.get_width(), crown.get_height()), Vector2i.ZERO)
 	return out
 
-# Stands the tree on the hilltop of an n-pixel image.
+# Stands the tree on the hilltop of an n-pixel image. Its soft ground shadow
+# only falls on the hill, not on the sky past the hill's curve.
 func plant_tree(n: int, s: float):
 	var tree = grove_tree(s)
-	var base = Vector2(n / 2.0, hill_top(n / 2.0, n) + 1)
-	img.blend_rect(tree, Rect2i(0, 0, tree.get_width(), tree.get_height()), Vector2i((base - TREE_BASE).round()))
+	var off = Vector2i((Vector2(n / 2.0, hill_top(n / 2.0, n) + 1) - TREE_BASE).round())
+	for y in tree.get_height():
+		for x in tree.get_width():
+			var c: Color = tree.get_pixel(x, y)
+			var q = Vector2i(x, y) + off
+			if c.a == 0.0 or q.x < 0 or q.y < 0 or q.x >= n or q.y >= n:
+				continue
+			if c.a < 1.0 and q.y < hill_top(q.x, n):
+				continue
+			px(q.x, q.y, img.get_pixel(q.x, q.y).blend(c))
 
 func run(api, image, project, params):
 	var part = params.get("part", "legacy")
 	if part == "legacy":
 		img = Image.create(96, 96, false, Image.FORMAT_RGBA8)
 		scenery(96)
-		plant_tree(96, 0.32)
+		plant_tree(96, 0.28)
 		return img
 	img = Image.create(216, 216, false, Image.FORMAT_RGBA8)
 	if part == "bg":
 		scenery(216)
 	else:
-		plant_tree(216, 0.54)
+		plant_tree(216, 0.55)
 	return img

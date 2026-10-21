@@ -378,6 +378,10 @@ const MAP_SAFE_BOTTOM := 1280.0
 const GROVE := Vector2(340, 682)
 const LEVEL_ORDER := ["sunny_meadow", "whispering_spring", "ember_vent", "frostbite_hollow", "gloomroot_cavern",
 	"brambleheart_thicket", "sunken_lagoon", "steamvent_marsh", "frostshade_barrows", "blighted_heartwood"]
+## Two-element lands that only grow on the world maps after a prestige. They're
+## side lands: they never gate the tree's growth, and their foes all come from
+## the lands above (they're never an enemy's home, see enemy_home).
+const PRESTIGE_LEVEL_ORDER := ["mossmire_fen", "cinderfrost_peak", "cindergloom_wastes"]
 const LEVELS := {
 	"sunny_meadow": {
 		"name": "Sunny Meadow", "biome": "Meadows", "elements": ["nature"], "distance": 1, "from": "grove",
@@ -447,7 +451,7 @@ const LEVELS := {
 	},
 	"sunken_lagoon": {
 		"name": "Sunken Lagoon", "biome": "Drowned Ruins", "elements": ["water"], "distance": 7, "from": "gloomroot_cavern",
-		"pos": Vector2(420, 1176), "playable": true, "daily_yield": 55,
+		"pos": Vector2(420, 1176), "playable": true, "daily_yield": 55, "scale": 1.15,
 		"rewards": {"first_xp": 650, "xp": 170, "sap": 75},
 		"waves": [
 			["snapjaw_crab", "snapjaw_crab", "bubble_eel", "bubble_eel"],
@@ -458,7 +462,7 @@ const LEVELS := {
 	},
 	"steamvent_marsh": {
 		"name": "Steamvent Marsh", "biome": "Boiling Marsh", "elements": ["water", "fire"], "distance": 8, "from": "ember_vent",
-		"pos": Vector2(130, 240), "playable": true, "label_above": true, "daily_yield": 40, "scale": 0.7,
+		"pos": Vector2(130, 240), "playable": true, "label_above": true, "daily_yield": 40, "scale": 0.82,
 		"rewards": {"first_xp": 950, "xp": 250, "sap": 95},
 		"waves": [
 			["wild_ember_sprout", "wild_ember_sprout", "wild_tide_caller", "wild_tide_caller"],
@@ -470,7 +474,7 @@ const LEVELS := {
 	},
 	"frostshade_barrows": {
 		"name": "Frostshade Barrows", "biome": "Frozen Barrows", "elements": ["ice", "dark"], "distance": 9, "from": "frostbite_hollow",
-		"pos": Vector2(575, 630), "playable": true, "daily_yield": 40, "scale": 0.95,
+		"pos": Vector2(575, 630), "playable": true, "daily_yield": 40, "scale": 1.1,
 		"rewards": {"first_xp": 1350, "xp": 350, "sap": 115},
 		"waves": [
 			["wild_frost_warden", "wild_shade_twig", "wild_frost_warden", "wild_shade_twig"],
@@ -482,7 +486,7 @@ const LEVELS := {
 	},
 	"blighted_heartwood": {
 		"name": "Blighted Heartwood", "biome": "Rotten Heartwood", "elements": ["nature", "dark"], "distance": 10, "from": "brambleheart_thicket",
-		"pos": Vector2(190, 1241), "playable": true, "daily_yield": 45,
+		"pos": Vector2(190, 1241), "playable": true, "daily_yield": 45, "scale": 1.15,
 		"rewards": {"first_xp": 1900, "xp": 480, "sap": 140},
 		"waves": [
 			["wild_vine_lasher", "wild_shade_twig", "wild_vine_lasher", "wild_shade_twig"],
@@ -492,7 +496,75 @@ const LEVELS := {
 			["blight_treant", "hollow_mole_king", "wild_vine_lasher", "wild_shade_twig", "wild_shade_twig"],
 		],
 	},
+	# After a prestige only (PRESTIGE_LEVEL_ORDER); their spots come from the map layout.
+	"mossmire_fen": {
+		"name": "Mossmire Fen", "biome": "Sunken Fen", "elements": ["nature", "water"], "distance": 6, "from": "sunny_meadow",
+		"pos": Vector2(140, 955), "playable": true, "daily_yield": 35, "scale": 0.85,
+		"rewards": {"first_xp": 520, "xp": 140, "sap": 65},
+		"waves": [
+			["wild_vine_lasher", "wild_vine_lasher", "wild_tide_caller", "wild_tide_caller"],
+			["thornback_boar", "spring_frog", "thornback_boar", "pollen_wisp", "ripple_sprite", "wild_tide_caller"],
+			["wild_vine_lasher", "wild_vine_lasher", "wild_vine_lasher", "wild_tide_caller", "wild_tide_caller", "pollen_wisp"],
+			["thornback_boar", "spring_frog", "pollen_wisp", "ripple_sprite", "wild_vine_lasher", "wild_tide_caller", "spring_frog"],
+			["blight_treant", "mossback_turtle", "wild_vine_lasher", "wild_tide_caller", "wild_tide_caller"],
+		],
+	},
+	"cinderfrost_peak": {
+		"name": "Cinderfrost Peak", "biome": "Fire-and-Ice Peak", "elements": ["fire", "ice"], "distance": 8, "from": "frostbite_hollow",
+		"pos": Vector2(565, 318), "playable": true, "daily_yield": 40, "scale": 0.9,
+		"rewards": {"first_xp": 1000, "xp": 260, "sap": 100},
+		"waves": [
+			["wild_ember_sprout", "wild_ember_sprout", "wild_frost_warden", "wild_frost_warden"],
+			["cinder_lizard", "frost_wolf", "cinder_lizard", "ash_moth", "icicle_bat", "wild_frost_warden"],
+			["wild_ember_sprout", "wild_ember_sprout", "wild_ember_sprout", "wild_frost_warden", "wild_frost_warden", "icicle_bat"],
+			["frost_wolf", "wild_ember_sprout", "cinder_lizard", "ash_moth", "wild_frost_warden", "icicle_bat", "ash_moth"],
+			["magma_salamander", "rime_elk", "wild_ember_sprout", "wild_frost_warden", "wild_frost_warden"],
+		],
+	},
+	"cindergloom_wastes": {
+		"name": "Cindergloom Wastes", "biome": "Ashen Wastes", "elements": ["fire", "dark"], "distance": 10, "from": "gloomroot_cavern",
+		"pos": Vector2(555, 903), "playable": true, "daily_yield": 45, "scale": 1.15,
+		"rewards": {"first_xp": 1900, "xp": 480, "sap": 140},
+		"waves": [
+			["wild_ember_sprout", "wild_shade_twig", "wild_ember_sprout", "wild_shade_twig"],
+			["cinder_lizard", "shadow_slime", "cinder_lizard", "ash_moth", "cave_bat", "wild_shade_twig"],
+			["wild_ember_sprout", "wild_ember_sprout", "wild_ember_sprout", "wild_shade_twig", "wild_shade_twig", "ash_moth"],
+			["shadow_slime", "wild_ember_sprout", "cinder_lizard", "ash_moth", "wild_shade_twig", "cave_bat", "ash_moth"],
+			["magma_salamander", "hollow_mole_king", "wild_ember_sprout", "wild_shade_twig", "wild_shade_twig"],
+		],
+	},
 }
+
+
+## The lands on the current world map: the after-prestige lands join the rest
+## once the map has a layout (the first map has none).
+static func map_lands() -> Array:
+	return LEVEL_ORDER + PRESTIGE_LEVEL_ORDER if not layout.is_empty() else LEVEL_ORDER
+
+## Each land's names, taken in turn with the tree's prestige, so a redrawn map
+## has new names too. The first is the land's `name`.
+const LAND_NAMES := {
+	"sunny_meadow": ["Sunny Meadow", "Buttercup Fields", "Golden Glade"],
+	"whispering_spring": ["Whispering Spring", "Mistfall Pool", "Silverbrook Font"],
+	"ember_vent": ["Ember Vent", "Cinder Crag", "Ashfire Ridge"],
+	"frostbite_hollow": ["Frostbite Hollow", "Icicle Dell", "Snowdrift Vale"],
+	"gloomroot_cavern": ["Gloomroot Cavern", "Duskhollow Deep", "Shadowmaw Caves"],
+	"brambleheart_thicket": ["Brambleheart Thicket", "Thornweald", "Briarwood Tangle"],
+	"sunken_lagoon": ["Sunken Lagoon", "Drowned Atoll", "Coral Hollows"],
+	"steamvent_marsh": ["Steamvent Marsh", "Scalding Fen", "Boilmire Bog"],
+	"frostshade_barrows": ["Frostshade Barrows", "Rimegrave Tombs", "Wraithfrost Crypts"],
+	"blighted_heartwood": ["Blighted Heartwood", "Rotroot Wilds", "Witherbark Hollow"],
+	"mossmire_fen": ["Mossmire Fen", "Lilyrot Bog", "Reedwater Mire"],
+	"cinderfrost_peak": ["Cinderfrost Peak", "Steamrime Summit", "Emberglace Spire"],
+	"cindergloom_wastes": ["Cindergloom Wastes", "Ashshadow Barrens", "Smokeveil Badlands"],
+}
+
+## Which of the LAND_NAMES and DUNGEON_NAMES are in use: the tree's prestige count, set by Game.
+static var name_set := 0
+
+static func land_name(id: String) -> String:
+	var names: Array = LAND_NAMES.get(id, [LEVELS[id]["name"]])
+	return names[name_set % names.size()]
 
 # Path-only waypoints (not levels) that root paths could travel through.
 const WAYPOINTS := {}
@@ -620,9 +692,24 @@ static func expedition_wave_xp(index: int) -> int:
 static func node_pos(id: String) -> Vector2:
 	if id == "grove":
 		return GROVE
+	if layout.has(id):
+		return layout[id]["pos"]
 	if LEVELS.has(id):
 		return LEVELS[id]["pos"]
 	return WAYPOINTS[id]["pos"]
+
+
+## The node a land's root grows from: the grove or another land.
+static func node_from(id: String) -> String:
+	if layout.has(id):
+		return layout[id]["from"]
+	return LEVELS[id]["from"] if LEVELS.has(id) else WAYPOINTS[id]["from"]
+
+
+## The world map after a prestige: land id -> { pos, from, label_above }, plus
+## "dungeon_spots". Set from the save's map seed (see MapLayout); empty for the
+## first map, which uses the positions in LEVELS.
+static var layout := {}
 
 
 # --- Garden -----------------------------------------------------------------------
@@ -630,7 +717,14 @@ static func node_pos(id: String) -> Vector2:
 # seed is grown and its plant slowly makes resources, stored in the plant (up to
 # GARDEN_CAP_MINUTES of production) until the player taps it to collect.
 
-const GARDEN_PLOTS := 12
+const GARDEN_PLOTS := 12  # the most plots the garden can hold
+const GARDEN_START_PLOTS := 1
+const PLOT_BASE_COST := 300  # sunlight for the second plot
+const PLOT_COST_GROWTH := 1.6  # each plot after costs this much more
+
+## Sunlight to buy the next plot when the garden has `owned` of them.
+static func plot_cost(owned: int) -> int:
+	return roundi(PLOT_BASE_COST * pow(PLOT_COST_GROWTH, owned - GARDEN_START_PLOTS) / 10.0) * 10
 const GROW_MINUTES := 5.0
 const GARDEN_CAP_MINUTES := 4.0 * 60.0
 const EXPEDITION_SEED_CHANCE := 0.3  # per normal wave; boss waves always drop a seed
@@ -672,51 +766,60 @@ static func roll_seed(element: String) -> String:
 # --- Dungeons ---------------------------------------------------------------------
 # DUNGEON_COUNT dungeons sit on DUNGEON_SPOTS around the world map, each full of foes
 # of one random element. A cleared dungeon crumbles and a new one appears
-# DUNGEON_RESPAWN_MINUTES later, 1 or 2 reach farther out than the one it
-# replaces (the first ones are rolled between reach 1 and DUNGEON_START_MAX);
-# a lost battle leaves it standing. A dungeon is about as tough as the land at
-# its root distance. Clearing one gives potions, plus garden seeds
-# once the tree has prestiged.
+# DUNGEON_RESPAWN_MINUTES later; a lost battle leaves it standing. Each new
+# dungeon's level is rolled within 1 of the tree's level when it appears, and
+# it is about as tough as the land at that root distance (the land that gates
+# that tree level). Clearing one gives potions, plus garden seeds once the tree
+# has prestiged.
 
 const DUNGEON_COUNT := 3
 const DUNGEON_EARLY_SEED_CHANCE := 0.15  # before the first prestige, a cleared dungeon may drop one seed
 const DUNGEON_RESPAWN_MINUTES := 30.0
 const DUNGEON_WAVES := 4  # the last one is a boss wave
-const DUNGEON_START_MAX := 5
-const DUNGEON_MAX_DISTANCE := 10
+const DUNGEON_LEVEL_SPREAD := 1  # a new dungeon is up to this many levels above or below the tree
 const DUNGEON_SCALE_PER_REACH := 0.12  # foe strength per step of reach past (or short of) their home land
 const DUNGEON_GAP := 80.0  # map distance DUNGEON_SPOTS keep from the lands and the grove
+## Each element's dungeon names, taken in turn with the tree's prestige (see name_set).
 const DUNGEON_NAMES := {
-	"nature": "Overgrown Burrow", "water": "Flooded Grotto", "fire": "Smoldering Pit",
-	"ice": "Rime Crypt", "dark": "Shadow Den",
+	"nature": ["Overgrown Burrow", "Mossy Warren", "Thornroot Den"],
+	"water": ["Flooded Grotto", "Tidepool Cave", "Sunken Cellar"],
+	"fire": ["Smoldering Pit", "Cinder Forge", "Magma Hollow"],
+	"ice": ["Rime Crypt", "Frozen Vault", "Glacier Cave"],
+	"dark": ["Shadow Den", "Gloom Pit", "Nightshade Lair"],
 }
 
-
-## Root distance of the dungeon that replaces a cleared one at `cleared`.
-static func next_dungeon_distance(cleared: int) -> int:
-	return mini(DUNGEON_MAX_DISTANCE, cleared + randi_range(1, 2))
+static func dungeon_name(element: String) -> String:
+	return DUNGEON_NAMES[element][name_set % DUNGEON_NAMES[element].size()]
 
 
-## Potions for clearing a dungeon at root distance `distance`. Seeds use the same count once the garden is open.
-static func dungeon_reward_count(distance: int) -> int:
-	return 1 + distance / 3
+## The level of a dungeon appearing while the tree is at `tree_level`.
+static func roll_dungeon_level(tree_level: int) -> int:
+	return clampi(tree_level + randi_range(-DUNGEON_LEVEL_SPREAD, DUNGEON_LEVEL_SPREAD), 1, MAX_LEVEL)
+
+
+## Potions for clearing a dungeon of level `level`. Seeds use the same count once the garden is open.
+static func dungeon_reward_count(level: int) -> int:
+	return 1 + level / 3
 
 
 ## The nearest land whose waves include enemy `key`, or "" if no land has it.
+## After-prestige lands only borrow foes, so they're never a home.
 static func enemy_home(key: String) -> String:
 	var best := ""
-	for id in LEVELS:
+	for id in LEVEL_ORDER:
 		for w in LEVELS[id]["waves"]:
 			if key in w and (best == "" or LEVELS[id]["distance"] < LEVELS[best]["distance"]):
 				best = id
 	return best
 
 
-## A new dungeon of `element` at root distance `distance`: { element, distance, scale, waves }.
-## The boss is the element's toughest one from a land within the distance (or the
-## nearest one past it), its foes come from lands no farther than the boss's, and
-## all of them are scaled up or down to the distance.
-static func roll_dungeon(element: String, distance: int) -> Dictionary:
+## A new dungeon of `element` at level `level`: { element, level, scale, waves }.
+## Its foes match the land at root distance `level`: the boss is the element's
+## toughest one from a land within that distance (or the nearest one past it),
+## its foes come from lands no farther than the boss's, and all of them are
+## scaled up or down to the distance.
+static func roll_dungeon(element: String, level: int) -> Dictionary:
+	var distance := level
 	var boss := ""
 	var boss_dist := 0
 	for key in ENEMIES:
@@ -750,7 +853,7 @@ static func roll_dungeon(element: String, distance: int) -> Dictionary:
 		last.append(foes.pick_random())
 	waves.append(last)
 	var scale: float = LEVELS[boss_home].get("scale", 1.0) * clampf(1.0 + DUNGEON_SCALE_PER_REACH * (distance - boss_dist), 0.6, 2.0)
-	return {"element": element, "distance": distance, "scale": snappedf(scale, 0.01), "waves": waves}
+	return {"element": element, "level": level, "scale": snappedf(scale, 0.01), "waves": waves}
 
 
 ## Where dungeons can stand: open ground clear of the lands and their names,
@@ -758,26 +861,31 @@ static func roll_dungeon(element: String, distance: int) -> Dictionary:
 ## dungeon always has a free spot to choose from.
 const DUNGEON_SPOTS := [Vector2(346, 856), Vector2(324, 1041), Vector2(585, 1129), Vector2(450, 470), Vector2(95, 790)]
 
+static func dungeon_spots() -> Array:
+	return layout.get("dungeon_spots", DUNGEON_SPOTS)
+
 
 ## A free dungeon spot (not in `taken`), avoiding `last`, the spot the dungeon
 ## it replaces stood on, so a respawn turns up somewhere new.
 static func roll_dungeon_pos(taken: Array, last := Vector2.INF) -> Vector2:
-	var free := DUNGEON_SPOTS.filter(func(p): return not taken.any(func(t): return t.distance_to(p) < 1.0))
+	var free := dungeon_spots().filter(func(p): return not taken.any(func(t): return t.distance_to(p) < 1.0))
 	var fresh := free.filter(func(p): return last == Vector2.INF or last.distance_to(p) >= 1.0)
 	if not fresh.is_empty():
 		return fresh.pick_random()
-	return free.pick_random() if not free.is_empty() else DUNGEON_SPOTS.pick_random()
+	return free.pick_random() if not free.is_empty() else dungeon_spots().pick_random()
 
 
 ## Whether `p` is a dungeon spot that none of the `taken` ones already uses
 ## (a save from before the spots were fixed may have one elsewhere).
 static func dungeon_spot_clear(p: Vector2, taken: Array) -> bool:
-	return DUNGEON_SPOTS.any(func(q): return q.distance_to(p) < 1.0) and not taken.any(func(t): return t.distance_to(p) < 1.0)
+	return dungeon_spots().any(func(q): return q.distance_to(p) < 1.0) and not taken.any(func(t): return t.distance_to(p) < 1.0)
 
 
 ## Whether a land's name goes above its node (set where a root comes up from
 ## right below and would otherwise run through the name).
 static func label_above(id: String) -> bool:
+	if layout.has(id):
+		return layout[id]["label_above"]
 	return LEVELS[id].get("label_above", false)
 
 

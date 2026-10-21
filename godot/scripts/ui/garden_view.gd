@@ -1,7 +1,8 @@
 extends Control
 ## Garden: a meadow of lots for seeds found on expeditions. Saplings gather
 ## sunlight and sap, elemental flowers a little of their element. Tap a grown
-## plant to collect, tap an empty lot to plant, swipe up for the seed pouch.
+## plant to collect, tap an empty lot to plant, swipe up to buy more plots
+## with sunlight and for the seed pouch.
 
 var main: Control
 var _scene: GardenScene
@@ -19,6 +20,7 @@ func _ready() -> void:
 	_scene = GardenScene.new(main.ui["selected_plot"])
 	_scene.set_anchors_preset(PRESET_FULL_RECT)
 	_scene.lot_tapped.connect(_on_plot_tapped)
+	_scene.buy_tapped.connect(main.open_sheet)
 	add_child(_scene)
 
 	_margin = MarginContainer.new()
@@ -49,6 +51,8 @@ func apply_insets(top: float, bottom: float) -> void:
 
 ## Updates in place after a state change (the shell calls this instead of rebuilding).
 func refresh() -> void:
+	if main.ui["selected_plot"] >= Game.state["garden"].size():
+		main.ui["selected_plot"] = -1
 	_scene.set_selected(main.ui["selected_plot"])
 	_scene.sync()
 	_card_key = ""
@@ -56,7 +60,7 @@ func refresh() -> void:
 
 
 func sheet_title() -> String:
-	return "Seeds"
+	return "Plots & Seeds"
 
 
 # What the selected plot holds; the card rebuilds when this changes.
@@ -99,8 +103,44 @@ func _build_card() -> void:
 	_card_row.add_child(card)
 
 
-## The seed pouch, shown in the pull-up sheet.
+## More plots to buy and the seed pouch, shown in the pull-up sheet.
 func build_sheet() -> Control:
+	var col := UI.vbox(16)
+	col.add_child(_plot_card())
+	col.add_child(_seed_pouch())
+	return col
+
+
+# Buying plots, laid out like the Grove's tree-part upgrades.
+func _plot_card() -> Control:
+	var owned: int = Game.state["garden"].size()
+	var full := owned >= GameData.GARDEN_PLOTS
+	var check := Game.can_buy_plot()
+	var box := UI.vbox(8)
+	var head := UI.hbox(8)
+	head.add_child(UI.label("Plots", "Heading"))
+	head.add_child(UI.label("%d / %d" % [owned, GameData.GARDEN_PLOTS], "Muted"))
+	if not full:
+		var effect := UI.label("%d → %d plots" % [owned, owned + 1], "Small", true)
+		effect.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		effect.add_theme_color_override("font_color", UI.ROOT_GLOW)
+		head.add_child(effect)
+	box.add_child(head)
+	box.add_child(UI.label("Clear another root-ringed bed in the garden for one more plant.", "Small", true))
+	if full:
+		box.add_child(UI.label("Every plot is cleared.", "Hint"))
+		return UI.panel(box)
+	var row := UI.hbox(10)
+	row.add_child(UI.cost_row({"sunlight": GameData.plot_cost(owned)}, Game.state["resources"]))
+	row.add_child(UI.spacer())
+	var buy := UI.button("Buy plot", Game.buy_plot, "PrimaryButton" if check["ok"] else "")
+	buy.disabled = not check["ok"]
+	row.add_child(buy)
+	box.add_child(row)
+	return UI.panel(box)
+
+
+func _seed_pouch() -> Control:
 	var sel: int = main.ui["selected_plot"]
 	var box := UI.vbox(12)
 	if Game.state["seeds"].is_empty():
@@ -108,7 +148,7 @@ func build_sheet() -> Control:
 		return UI.panel(box)
 	var target := _plant_target(sel)
 	if target < 0:
-		box.add_child(UI.label("Every lot is in use. Uproot a plant to make room.", "Small", true))
+		box.add_child(UI.label("Every plot is in use. Buy another plot or uproot a plant to make room.", "Small", true))
 	else:
 		box.add_child(UI.label("Choose a seed for lot %d." % (target + 1), "Small", true))
 	for id in GameData.SEED_ORDER:

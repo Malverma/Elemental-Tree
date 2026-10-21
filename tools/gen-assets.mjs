@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 
 // Written to both the web prototype and the Godot project.
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const outDirs = [join(root, 'assets'), join(root, 'godot', 'assets')];
+const outDirs = [join(root, 'assets')];  // the web prototype; the Godot game uses pixel art
 for (const dir of outDirs) mkdirSync(dir, { recursive: true });
 
 const INK = '#2B1D12';
