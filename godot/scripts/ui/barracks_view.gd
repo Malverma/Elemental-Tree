@@ -5,26 +5,51 @@ extends Control
 ## swap, or between the roster and the stumps (dropping a placed troop anywhere
 ## below the stumps benches it). While a troop is dragged, a
 ## campfire appears in the corner: drop it there to dismiss it for good. New
-## troops are grown from the boxes below the roster.
+## troops come out of the root box below the roster: inject sap for better odds
+## and an element's energy to favour that element's troop, then tap the box. It
+## moves to the middle of the screen and opens, and the new troop's card shows
+## there a moment before dropping into the roster.
 
 const Campfire := preload("res://scripts/ui/campfire.gd")
-## Roster tokens: the narrowest they get, and the gap between them.
-const TOKEN_W := 80.0
+const TwigBoxArt := preload("res://scripts/ui/twig_box_art.gd")
+## Roster tokens: the narrowest they get, their height, and the gap between them.
+const TOKEN_W := 96.0
+const TOKEN_H := 118.0
 const TOKEN_GAP := 8
+## Holding an inject button repeats it: the wait before the first repeat, then between repeats.
+const HOLD_DELAY := 0.35
+const HOLD_REPEAT := 0.12
+## The opening: the box flies to the middle and grows this much, and the troop's
+## card holds there this long before dropping into the roster.
+const OPEN_ZOOM := 1.5
+const CARD_HOLD := 1.0
 
 var main: Control
 var _scene: BarracksScene
 var _margin: MarginContainer
 var _counts: Label
-var _attack: Button
 var _hint: Label
 var _lower: ScrollContainer
 var _below: Control  # everything under the stumps, where a dragged troop goes back to the roster
-var _lower_at := 0
 var _bench: PanelContainer
 var _bench_title: Label
 var _tokens: HFlowContainer
-var _shop_boxes: GridContainer
+var _box_art: Control
+var _box_title: Label
+var _box_upgrade: Button
+var _box_sap: Label
+var _box_energy: Label
+var _box_hint: Label
+var _inject_sap: Button
+var _element_buttons := {}  # element -> Button
+var _odds := {}  # rarity -> [bar fill ColorRect, percent Label]
+var _focus_line: Label
+var _opening := false
+var _arriving := -1  # the troop whose card is on its way to the roster; its token waits hidden
+var _lower_at := 0
+var _hold: Timer
+var _hold_action := Callable()
+var _hold_button: Button
 var _fire: VBoxContainer
 var _fire_art: Control
 var _fire_hot := false
@@ -59,10 +84,6 @@ func _ready() -> void:
 	_counts = UI.label("", "SceneSmall")
 	_counts.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(_counts)
-	# Opened from the map's "Grow troops": a way back out to that land or dungeon.
-	_attack = UI.button("Attack", main.attack_target, "PrimaryButton")
-	_attack.size_flags_horizontal = SIZE_SHRINK_CENTER
-	col.add_child(_attack)
 
 	_below = Control.new()
 	_below.mouse_filter = MOUSE_FILTER_PASS
@@ -102,16 +123,12 @@ func _ready() -> void:
 	for c in [_below, _lower, stack, _bench, _tokens]:
 		_accept_roster_drops(c)
 
-	var shop := UI.vbox(8)
-	shop.add_child(UI.label("Grow troops", "Scene"))
-	_shop_boxes = GridContainer.new()
-	_shop_boxes.columns = 3
-	_shop_boxes.add_theme_constant_override("h_separation", 8)
-	_shop_boxes.add_theme_constant_override("v_separation", 8)
-	shop.add_child(_shop_boxes)
-	var shop_panel := UI.panel(shop, "Pill")
-	stack.add_child(shop_panel)
-	for c in [shop_panel, shop, _shop_boxes]:
+	_hold = Timer.new()
+	_hold.timeout.connect(_on_hold_tick)
+	add_child(_hold)
+	var box_panel := UI.panel(_build_box(), "Pill")
+	stack.add_child(box_panel)
+	for c in [box_panel] + box_panel.find_children("*", "Container", true, false):
 		_accept_roster_drops(c)
 
 	_fire = UI.vbox(0)
@@ -158,21 +175,16 @@ func refresh() -> void:
 		main.ui["selected_troop"] = sel
 	_scene.selected_troop = sel
 	_scene.sync()
-	var target: String = main.ui["attack_target"]
-	if target.begins_with("dungeon_") and Game.dungeon(target).is_empty():
-		target = ""  # cleared, so it crumbled
-		main.ui["attack_target"] = target
-	_attack.visible = target != ""
 	_counts.text = "Formation %d / %d  ·  ▲ the front row faces the enemy" % [s["formation"].size(), Game.formation_slots()]
 	_bench_title.text = "Roster %d / %d" % [s["troops"].size(), Game.roster_cap()]
 	if sel >= 0:
 		_hint.text = "Tap a stump for %s" % GameData.troop_def(Game.troop_by_id(sel))["name"]
 	elif s["troops"].is_empty():
-		_hint.text = "No troops yet · grow some below"
+		_hint.text = "No troops yet · open the root box below"
 	else:
 		_hint.text = ""
 	_build_tokens()
-	_build_shop()
+	_refresh_box()
 	_place_lower.call_deferred()
 
 
@@ -209,9 +221,9 @@ func _token(t: Dictionary, placed: bool) -> Button:
 	b.expand_icon = true
 	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-	b.custom_minimum_size = Vector2(TOKEN_W, 98)
+	b.custom_minimum_size = Vector2(TOKEN_W, TOKEN_H)
 	b.tooltip_text = d["name"]
-	b.add_theme_font_size_override("font_size", 18)
+	b.add_theme_font_size_override("font_size", 20)
 	var text_col: Color = Color.WHITE if d["element"] == "" else GameData.BIOME_COLORS[d["element"]].lightened(0.35)
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		b.add_theme_color_override(c, text_col)
@@ -222,6 +234,9 @@ func _token(t: Dictionary, placed: bool) -> Button:
 		b.add_theme_stylebox_override(state, look)
 	if placed and not picked:
 		b.modulate.a = 0.6
+	if t["id"] == _arriving:
+		b.modulate.a = 0.0
+	b.set_meta("troop_id", t["id"])
 	b.pressed.connect(_on_troop_pressed.bind(t["id"]))
 	b.set_drag_forwarding(_drag_token.bind(t), _can_drop_on_roster, _drop_on_roster)
 	return b
@@ -246,72 +261,376 @@ static func _token_style(picked: bool) -> StyleBoxFlat:
 	return s
 
 
-# One box per troop type in reach. Elemental troops appear once your roots reach
-# a land of their element and unlock when you conquer it.
-func _build_shop() -> void:
-	for c in _shop_boxes.get_children():
-		c.queue_free()
-	for type in GameData.TROOP_ORDER:
-		var el: String = GameData.TROOPS[type]["element"]
-		if el == "" or Game.element_in_reach(el):
-			_shop_boxes.add_child(_shop_box(type))
+# --- Root box ------------------------------------------------------------------
+
+# The root box panel: its name and upgrade, the box itself beside the inject
+# buttons and odds, and Drain / Open underneath. Built once, so the box keeps
+# animating while refresh() updates the numbers.
+func _build_box() -> VBoxContainer:
+	var col := UI.vbox(10)
+	var head := UI.hbox(8)
+	_box_title = UI.label("", "Scene")
+	_box_title.size_flags_horizontal = SIZE_EXPAND_FILL
+	head.add_child(_box_title)
+	_box_upgrade = Button.new()
+	_box_upgrade.add_theme_font_size_override("font_size", 18)
+	_style_button(_box_upgrade)
+	_box_upgrade.pressed.connect(_on_upgrade_box)
+	head.add_child(_box_upgrade)
+	col.add_child(head)
+
+	var row := UI.hbox(12)
+	var art_col := UI.vbox(0)
+	_box_art = TwigBoxArt.new()
+	_box_art.unit = 4.0
+	_box_art.tapped.connect(_on_box_tapped)
+	_box_art.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed:
+			_lower_at = _lower.scroll_vertical)
+	art_col.add_child(_box_art)
+	_box_hint = _box_label("", 18)
+	_box_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_box_hint.custom_minimum_size = Vector2(_box_art.custom_minimum_size.x, 48)
+	art_col.add_child(_box_hint)
+	row.add_child(art_col)
+
+	var side := UI.vbox(8)
+	side.size_flags_horizontal = SIZE_EXPAND_FILL
+	_box_sap = _box_label("", 18)
+	_box_sap.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	side.add_child(_box_sap)
+	_inject_sap = Button.new()
+	_inject_sap.icon = UI.crisp(UI.RES_ICON["sap"])
+	_inject_sap.expand_icon = true
+	_inject_sap.add_theme_constant_override("icon_max_width", 30)
+	_inject_sap.add_theme_font_size_override("font_size", 20)
+	_style_button(_inject_sap)
+	_hold_to_repeat(_inject_sap, _on_inject_sap)
+	side.add_child(_inject_sap)
+	_box_energy = _box_label("", 18)
+	_box_energy.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	side.add_child(_box_energy)
+	var els := UI.hbox(4)
+	for el in GameData.ELEMENTS:
+		var b := Button.new()
+		b.icon = UI.crisp("icon_" + el)
+		b.expand_icon = true
+		b.add_theme_constant_override("icon_max_width", 32)
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		b.add_theme_font_size_override("font_size", 18)
+		b.size_flags_horizontal = SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 72)
+		_style_button(b)
+		_hold_to_repeat(b, _on_inject_power.bind(el))
+		els.add_child(b)
+		_element_buttons[el] = b
+	side.add_child(els)
+	for r in GameData.RARITY_ORDER:
+		var line := UI.hbox(6)
+		var name := _box_label(GameData.RARITY[r]["name"], 18)
+		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name.custom_minimum_size.x = 100
+		name.add_theme_color_override("font_color", GameData.RARITY[r]["color"])
+		line.add_child(name)
+		var track := Panel.new()
+		var track_look := StyleBoxFlat.new()
+		track_look.bg_color = Color(UI.NIGHT, 0.7)
+		track_look.set_corner_radius_all(3)
+		track.add_theme_stylebox_override("panel", track_look)
+		track.size_flags_horizontal = SIZE_EXPAND_FILL
+		track.size_flags_vertical = SIZE_SHRINK_CENTER
+		track.custom_minimum_size.y = 10
+		track.mouse_filter = MOUSE_FILTER_IGNORE
+		var bar := ColorRect.new()
+		bar.color = GameData.RARITY[r]["color"]
+		bar.mouse_filter = MOUSE_FILTER_IGNORE
+		track.add_child(bar)
+		track.resized.connect(_refresh_odds)
+		line.add_child(track)
+		var pct := _box_label("", 18)
+		pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		pct.custom_minimum_size.x = 56
+		line.add_child(pct)
+		side.add_child(line)
+		_odds[r] = [bar, pct]
+	_focus_line = _box_label("", 17)
+	_focus_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_focus_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	side.add_child(_focus_line)
+	row.add_child(side)
+	col.add_child(row)
+
+	return col
 
 
-# A buy box: sprite, name, HP / DMG / reach, and cost (or what unlocks it).
-# Tapping grows the troop.
-func _shop_box(type: String) -> Button:
-	var d: Dictionary = GameData.TROOPS[type]
-	var lock := Game.troop_lock_reason(type)
-	var b := Button.new()
-	b.size_flags_horizontal = SIZE_EXPAND_FILL
-	b.custom_minimum_size = Vector2(0, 186)
-	b.tooltip_text = "%s · %s" % [d["name"], lock if lock != "" else d["role"]]
+# The dark token look for the box's own buttons, with light outlined text.
+func _style_button(b: Button) -> void:
+	b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, 52)
 	var look := _token_style(false)
-	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+	var down := _token_style(true)
+	for state in ["normal", "hover", "focus", "disabled"]:
 		b.add_theme_stylebox_override(state, look)
-	b.disabled = not Game.can_summon(type)["ok"]
-	# Pass drags on so the list scrolls by touch; a scroll isn't a purchase.
-	b.mouse_filter = MOUSE_FILTER_PASS
-	_accept_roster_drops(b)
-	b.button_down.connect(func() -> void: _lower_at = _lower.scroll_vertical)
-	b.pressed.connect(_on_shop_pressed.bind(type))
+	b.add_theme_stylebox_override("pressed", down)
+	b.add_theme_color_override("font_outline_color", UI.NIGHT)
+	b.add_theme_constant_override("outline_size", 6)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(c, UI.SHEET_INK)
+	b.add_theme_color_override("font_disabled_color", Color(UI.SHEET_INK, 0.4))
 
-	var box := UI.vbox(4)
-	box.set_anchors_preset(PRESET_FULL_RECT)
-	box.offset_top = 6
-	box.offset_bottom = -6
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	var img := UI.icon(d["img"], 54)
-	box.add_child(img)
-	var title := _box_label(d["name"], 19)
-	box.add_child(title)
-	var stats := UI.hbox(10)
+
+# Fires `action` on press, then again and again while the button is held,
+# until it is let go or the action fails. `action` returns whether it worked.
+func _hold_to_repeat(b: Button, action: Callable) -> void:
+	b.button_down.connect(func() -> void:
+		_hold_action = action
+		_hold_button = b
+		if action.call():
+			_hold.start(HOLD_DELAY))
+	b.button_up.connect(_hold.stop)
+
+
+func _on_hold_tick() -> void:
+	_hold.wait_time = HOLD_REPEAT
+	if not (is_instance_valid(_hold_button) and _hold_button.is_pressed() and not _hold_button.disabled
+			and not _opening and _hold_action.call()):
+		_hold.stop()
+
+
+func _refresh_box() -> void:
+	var box: Dictionary = Game.state["twig_box"]
+	var def := GameData.twig_box(box["tier"])
+	var busy := _opening
+	_box_art.tier = box["tier"]
+	_box_art.fill = box["sap"] / def["max_sap"]
+	_box_art.element = box["element"]
+	_box_art.energy = box["power"] / GameData.BOX_MAX_POWER
+	_box_title.text = "%s  ·  Tier %d" % [def["name"], box["tier"]]
+	if box["tier"] < GameData.TWIG_BOXES.size():
+		var next := GameData.twig_box(box["tier"] + 1)
+		var cost := []
+		for res in next["cost"]:
+			cost.append("%s %s" % [UI.fmt(next["cost"][res]), res])
+		_box_upgrade.visible = true
+		_box_upgrade.text = "▲ %s · %s" % [next["name"], " + ".join(cost)] if Game.state["tree"]["level"] >= next["unlock_level"] \
+			else "▲ %s · Tree Lv %d" % [next["name"], next["unlock_level"]]
+		_box_upgrade.disabled = busy or not Game.can_upgrade_box()["ok"]
+	else:
+		_box_upgrade.visible = false
+	var res: Dictionary = Game.state["resources"]
+	_box_sap.text = "Sap %d / %d  ·  opens at %d" % [box["sap"], def["max_sap"], def["min_sap"]]
+	_inject_sap.text = "Inject %d sap" % def["sap_step"]
+	_inject_sap.disabled = busy or box["sap"] >= def["max_sap"] or res["sap"] < 1.0
+	if box["element"] == "":
+		_box_energy.text = "Energy 0 / %d  ·  tap an element" % GameData.BOX_MAX_POWER
+	else:
+		_box_energy.text = "%s energy %d / %d" % [UI.capitalize(box["element"]), box["power"], GameData.BOX_MAX_POWER]
+	for el in _element_buttons:
+		var b: Button = _element_buttons[el]
+		var open: bool = Game.has_conquered_element(el)
+		b.text = UI.fmt(res["power"][el]) if open else "🔒"
+		b.disabled = busy or not open or (box["element"] != "" and box["element"] != el)
+		b.tooltip_text = "Inject %s energy: favours the %s" % [el, GameData.TROOPS[GameData.element_troop(el)]["name"]] if open \
+			else Game.power_block(el)
+	var check := Game.can_open_box()
+	_box_art.can_open = check["ok"] and not busy
+	_box_hint.text = "Tap the box to open it" if check["ok"] else check["msg"].trim_suffix(".")
+	_box_hint.add_theme_color_override("font_color", UI.ROOT_GLOW if check["ok"] else UI.SHEET_MUTED)
+	_refresh_odds()
+
+
+# Odds bars and percentages, and what the injected energy favours.
+func _refresh_odds() -> void:
+	if _odds.is_empty():
+		return
+	var odds := Game.box_odds()
+	for r in _odds:
+		var p: float = odds["rarity"][r]
+		var bar: ColorRect = _odds[r][0]
+		var track := bar.get_parent() as Control
+		bar.size = Vector2(roundf(track.size.x * p), track.size.y)
+		_odds[r][1].text = _pct(p)
+	var box: Dictionary = Game.state["twig_box"]
+	if box["element"] != "" and odds["focus"] > 0.0:
+		var type := GameData.element_troop(box["element"])
+		_focus_line.text = "%s %s" % [GameData.TROOPS[type]["name"], _pct(odds["types"][type])]
+		_focus_line.add_theme_color_override("font_color", GameData.BIOME_COLORS[box["element"]].lightened(0.35))
+	else:
+		_focus_line.text = "Energy raises the odds of its element's troop."
+		_focus_line.add_theme_color_override("font_color", UI.SHEET_MUTED)
+
+
+static func _pct(p: float) -> String:
+	if p > 0.0 and p < 0.01:
+		return "<1%"
+	return "%d%%" % roundi(p * 100.0)
+
+
+func _on_inject_sap() -> bool:
+	var ok: bool = Game.inject_sap()["ok"]
+	if ok:
+		_box_art.pour_sap()
+	return ok
+
+
+func _on_inject_power(el: String) -> bool:
+	var ok: bool = Game.inject_power(el)["ok"]
+	if ok:
+		_box_art.pour_power(el)
+	return ok
+
+
+func _on_upgrade_box() -> void:
+	if Game.upgrade_box()["ok"]:
+		_box_art.tier = Game.state["twig_box"]["tier"]
+		_box_art.pour_sap()
+
+
+# Tapping the box opens it (a scroll that started on it doesn't): a copy of it
+# flies to the middle of the screen over a dimmed Barracks and opens there.
+func _on_box_tapped() -> void:
+	if _opening or absi(_lower.scroll_vertical - _lower_at) >= 8:
+		return
+	var box: Dictionary = Game.state["twig_box"]
+	var fly := TwigBoxArt.new()
+	fly.unit = _box_art.unit
+	fly.tier = box["tier"]
+	fly.fill = _box_art.fill
+	fly.element = _box_art.element
+	fly.energy = _box_art.energy
+	var res := Game.open_box()
+	if not res["ok"]:
+		fly.free()
+		return
+	var troop: Dictionary = res["troop"]
+	_opening = true
+	_arriving = troop["id"]
+	_hold.stop()
+	main.render()
+
+	var veil := Control.new()  # catches taps while the box is open
+	veil.set_anchors_preset(PRESET_FULL_RECT)
+	veil.mouse_filter = MOUSE_FILTER_STOP
+	add_child(veil)
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(PRESET_FULL_RECT)
+	dim.color = Color(UI.NIGHT, 0.0)
+	dim.mouse_filter = MOUSE_FILTER_IGNORE
+	veil.add_child(dim)
+	var home := _box_art.get_global_rect().position - get_global_rect().position
+	fly.position = home
+	veil.add_child(fly)
+	_box_art.modulate.a = 0.0
+	var mid := (size - fly.custom_minimum_size * OPEN_ZOOM) * 0.5
+	var t := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(dim, "color:a", 0.7, 0.35)
+	t.tween_property(fly, "position", mid.round(), 0.45)
+	t.tween_property(fly, "scale", Vector2.ONE * OPEN_ZOOM, 0.45)
+	await t.finished
+	fly.open(troop)
+	await fly.revealed
+	# Everything injected went into the troop: the box drains while its card shows.
+	fly.fill = 0.0
+	fly.element = ""
+	fly.energy = 0.0
+	var card := _troop_card(troop)
+	veil.add_child(card)
+	# The card grows out of the troop as it leaves the box.
+	card.reset_size()
+	card.pivot_offset = card.size * 0.5
+	card.position = (fly.position + fly.troop_center() * OPEN_ZOOM - card.size * 0.5).round()
+	card.scale = Vector2.ONE * 0.3
+	var c := create_tween().set_parallel().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	c.tween_property(card, "scale", Vector2.ONE, 0.35)
+	c.tween_property(card, "position", ((size - card.size) * 0.5).round(), 0.35)
+	await get_tree().create_timer(0.35 + CARD_HOLD).timeout
+	await _drop_card(card)
+	# The fresh box goes back to its spot and the Barracks brightens.
+	var back := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	back.tween_property(dim, "color:a", 0.0, 0.35)
+	back.tween_property(fly, "position", _box_art.get_global_rect().position - get_global_rect().position, 0.4)
+	back.tween_property(fly, "scale", Vector2.ONE, 0.4)
+	await back.finished
+	veil.queue_free()
+	_box_art.modulate.a = 1.0
+	_opening = false
+	_refresh_box()
+
+
+# The card drops into the troop's new spot on the roster, which then pops in.
+func _drop_card(card: Control) -> void:
+	var token := _token_for(_arriving)
+	if token:
+		_lower.ensure_control_visible(token)
+		await get_tree().process_frame
+	var to := card.position + Vector2(0, size.y)  # off the bottom if its token is gone
+	var shrink := 0.5
+	if token:
+		var r := token.get_global_rect()
+		shrink = r.size.x / card.size.x
+		to = r.get_center() - get_global_rect().position - card.size * 0.5
+	var d := create_tween().set_parallel().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	d.tween_property(card, "position", to.round(), 0.45)
+	d.tween_property(card, "scale", Vector2.ONE * shrink, 0.45)
+	d.tween_property(card, "modulate:a", 0.0, 0.15).set_delay(0.3)
+	await d.finished
+	card.queue_free()
+	var id := _arriving
+	_arriving = -1
+	token = _token_for(id)
+	if token:
+		token.modulate.a = 1.0
+		token.pivot_offset = token.size * 0.5
+		token.scale = Vector2.ONE * 1.25
+		create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).tween_property(token, "scale", Vector2.ONE, 0.3)
+
+
+func _token_for(id: int) -> Control:
+	for c in _tokens.get_children():
+		if not c.is_queued_for_deletion() and c.get_meta("troop_id", -1) == id:
+			return c
+	return null
+
+
+# The new troop's card: its sprite, name and rarity, and HP / DMG / reach,
+# framed in its rarity's colour.
+func _troop_card(troop: Dictionary) -> PanelContainer:
+	var d := GameData.troop_def(troop)
+	var rarity: Dictionary = GameData.RARITY[d["rarity"]]
+	var look := _token_style(true)
+	look.border_color = rarity["color"]
+	look.bg_color = Color(UI.NIGHT, 0.95)
+	look.set_content_margin_all(16)
+	look.shadow_color = Color(rarity["color"], 0.35)
+	look.shadow_size = 18
+	var col := UI.vbox(4)
+	col.add_child(UI.icon(d["img"], 128))
+	var rl := _box_label(rarity["name"].to_upper(), 18)
+	rl.add_theme_color_override("font_color", rarity["color"])
+	col.add_child(rl)
+	var text_col: Color = Color.WHITE if d["element"] == "" else GameData.BIOME_COLORS[d["element"]].lightened(0.35)
+	var nl := _box_label("%s  #%d" % [d["name"], troop["id"]], 24)
+	nl.add_theme_color_override("font_color", text_col)
+	col.add_child(nl)
+	var role := _box_label(d["role"], 16)
+	role.modulate.a = 0.75
+	col.add_child(role)
+	var stats := UI.hbox(14)
 	stats.alignment = BoxContainer.ALIGNMENT_CENTER
 	for pair in [["HP", d["hp"]], ["DMG", d["dmg"]], ["Reach", d["reach"]]]:
 		var stat := UI.vbox(0)
-		stat.custom_minimum_size.x = 52
 		var cap := _box_label(pair[0], 15)
 		cap.modulate.a = 0.7
 		stat.add_child(cap)
-		stat.add_child(_box_label(str(pair[1]), 21))
+		stat.add_child(_box_label(str(pair[1]), 22))
 		stats.add_child(stat)
-	box.add_child(stats)
-	if lock != "":
-		var short := "Tree Lv %d" % d["unlock_level"] if lock.begins_with("Unlocks") else "Conquer"
-		box.add_child(_box_label("🔒 " + short, 19))
-	else:
-		var row := UI.hbox(8)
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		var res: Dictionary = Game.state["resources"]
-		row.add_child(_cost_pair(UI.RES_ICON["sap"], d["sap_cost"], res["sap"] >= d["sap_cost"]))
-		if d.has("power_cost"):
-			row.add_child(_cost_pair("icon_" + d["element"], d["power_cost"], res["power"][d["element"]] >= d["power_cost"]))
-		box.add_child(row)
-	for c in box.find_children("*", "Control", true, false):
-		c.mouse_filter = MOUSE_FILTER_IGNORE
-	box.mouse_filter = MOUSE_FILTER_IGNORE
-	b.add_child(box)
-	return b
+	col.add_child(stats)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", look)
+	card.custom_minimum_size.x = 280
+	card.mouse_filter = MOUSE_FILTER_IGNORE
+	card.add_child(col)
+	return card
 
 
 # Light outlined text for the dark boxes.
@@ -320,22 +639,6 @@ static func _box_label(text: String, font_size: int) -> Label:
 	l.add_theme_font_size_override("font_size", font_size)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return l
-
-
-# An icon and amount, red when the player can't afford it.
-static func _cost_pair(icon: String, amount: int, affordable: bool) -> HBoxContainer:
-	var pair := UI.hbox(4)
-	pair.add_child(UI.icon(icon, 24))
-	var l := _box_label(str(amount), 21)
-	if not affordable:
-		l.add_theme_color_override("font_color", UI.DANGER)
-	pair.add_child(l)
-	return pair
-
-
-func _on_shop_pressed(type: String) -> void:
-	if absi(_lower.scroll_vertical - _lower_at) < 8:
-		Game.summon(type)
 
 
 func _accept_roster_drops(c: Control) -> void:

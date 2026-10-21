@@ -174,11 +174,11 @@ Any base troop can be summoned with an element once the matching branch unlocks 
 Each element is strong against one element and weak against another (5-cycle):
 
 ```
-Water → Fire → Ice → Nature → Dark → Water
+Nature → Water → Fire → Ice → Dark → Nature
 (arrow = "is strong against")
 ```
 
-- Water douses Fire · Fire melts Ice · Ice freezes Nature · Nature's light dispels Dark · Dark corrupts Water
+- Nature drinks up Water · Water douses Fire · Fire melts Ice · Ice freezes Dark · Dark rots Nature
 - Strong: +50% damage dealt. Weak: −25% damage dealt. (Tuning values.)
 
 Because every starting level is a different element, the player needs a spread of branches to counter each one.
@@ -277,7 +277,7 @@ The original HTML/JS prototype (repo root, `npm start`) is kept as a reference b
 - **Element rewards:** first clear of a level grants a full day of its element (its daily yield); every repeat win grants 3 hours' worth.
 - **Elemental troops** (hidden in the Barracks until the roots reach a land of that element, unlocked by conquering it; cost 60 sap + 6 of the element): Vine Lasher (nature, reach 2, regenerates), Tide Caller (water, ranged, slows), Ember Sprout (fire, high damage, burns), Frost Warden (ice, armored tank, can freeze), Shade Twig (dark, fast, lifesteal).
 - **Troop upgrades (infusion):** in the Barracks, select a base troop and spend 5 of an element to give it that element permanently: its matchups, an ability and stat changes (nature +15% HP/+10% DMG & regen; water +10% HP/DMG & slow; fire +30% DMG/−10% HP & burn; ice +25% HP, 10% armor & freeze chance; dark +10% HP/DMG & 30% lifesteal).
-- Element matchups are live for troops and enemies (Water → Fire → Ice → Nature → Dark → Water; ×1.5 strong, ×0.75 weak). Levels show a tip naming their counter element.
+- Element matchups are live for troops and enemies (Nature → Water → Fire → Ice → Dark → Nature; ×1.5 strong, ×0.75 weak). Levels show a tip naming their counter element.
 - A level's enemy list stays blank ("?" / "???") for each foe until it has appeared in one of the player's battles.
 - Conquered levels store their element's power (up to one day's yield), collected from the map.
 - **Expeditions:** tapping the **Home Grove** on the World Map shows a "Start expedition" button where lands show "Attack" (lands no longer offer expeditions). It sends the formation into endless waves that get 5% stronger (HP and DMG) and slowly more numerous each wave. Waves come in **stretches of 5 that share one element**, cycling nature → water → fire → ice → dark → nature…, drawing on that element's land's foes; the 5th wave of each stretch is that element's boss and a **checkpoint**. Pressing on from a checkpoint rests the squad (+50% HP on top of the usual 25% wave heal). Each cleared wave adds growth (XP) to the loot (scaled from the replay growth of that element's land; boss waves double), and has a 20% chance to drop a potion and a 30% chance to drop a seed (boss waves always drop one of each). Every foe defeated adds **1 elemental power** of its element to the loot. At a checkpoint the player sees the next stretch's element and can **return with the loot** or **press on** to the next one. If the squad falls, runs out of time (90 s per wave) or retreats, all the expedition's loot is lost. Fallen troops are lost for good either way. Expeditions never conquer a land or count as clears; Skip is available while the current stretch's element land is conquered.

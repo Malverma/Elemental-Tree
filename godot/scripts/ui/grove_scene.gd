@@ -4,7 +4,12 @@ extends PixelScene
 ## sways in the wind, gusts pass now and then, leaves drift down and birds
 ## visit (see GroveBirds).
 ## Tapping the leaves or the trunk emits `tapped` ("branches" or "trunk");
-## tapping a bird emits `bird_tapped`.
+## tapping a bird emits `bird_tapped`, as does a bird caught by the Bird
+## Targeting perk's snare branch (see snare_bird).
+
+## Seconds until Bird Targeting next fires. It only counts down while the
+## Grove is on screen (see GroveView), and keeps its place across visits.
+static var snare_in := GameData.BIRD_TARGET_SECONDS
 
 signal tapped(global_pos: Vector2, part: String)
 ## A visiting bird was tapped (and burst into feathers).
@@ -15,6 +20,8 @@ const TREE_POS := Vector2(2, 110)
 const TREE_BASE_V := 194.0 / 200.0
 const CROWN_SWAY := 1.2
 const LEAF_FALL := 30.0  # design px / s
+const SNARE_REACH := 70.0  # design px: the farthest a snare branch stretches from the leaves
+const SNARE_LENGTH := 30.0  # design px: the length it likes best, long enough to see it shoot out
 ## Cloud positions survive rebuilds so the sky doesn't jump.
 static var _cloud_x := [20.0, 120.0, -40.0]
 
@@ -30,6 +37,8 @@ var _leaf_in := 8.0
 var _gust_in := 15.0
 var _gust := 0.0
 var _birds: GroveBirds
+var _snare: SnareBranch
+var _snare_roots: Array[Vector2] = []  # spots inside the crown a snare branch can grow from
 
 
 ## Which art stage a tree level shows: one per level, from a sprout at level 1
@@ -64,6 +73,20 @@ func _ready() -> void:
 	# Birds perch on the crown and hop about behind the front grass.
 	_birds = GroveBirds.new(self)
 	world.add_child(_birds)
+	_snare = SnareBranch.new(_birds)
+	_snare.caught.connect(_on_snared)
+	world.add_child(_snare)
+	# Behind the leaves, so it grows out from among them.
+	world.move_child(_snare, crown.get_index())
+	# Spots well inside the leaves, so the branch looks to come from among them.
+	var used := _crown_img.get_used_rect()
+	for y in range(used.position.y, used.end.y, 3):
+		for x in range(used.position.x, used.end.x, 3):
+			var inside := true
+			for d in [Vector2(0, 0), Vector2(3, 0), Vector2(-3, 0), Vector2(0, 3), Vector2(0, -3)]:
+				inside = inside and hits(_crown_img, Vector2(x, y) + d)
+			if inside:
+				_snare_roots.append(TREE_POS + Vector2(x, y))
 	var grass := sprite("grass_front", Vector2(0, 380))
 	_grass_mat = wind(1.0, 1.8, 1.0)
 	grass.material = _grass_mat
@@ -132,6 +155,44 @@ func _fall(leaf: Dictionary, delta: float) -> void:
 		tw.tween_interval(1.2)
 		tw.tween_property(s, "modulate:a", 0.0, 0.8)
 		tw.tween_callback(s.queue_free)
+
+
+## Bird Targeting: sends a snare branch out of the leaves at a bird in reach.
+## Returns false when there's no bird to catch (call_bird() brings one).
+func snare_bird() -> bool:
+	if _snare.busy():
+		return false
+	var best := {}
+	for b in _birds.visible_birds():
+		var at := GroveBirds.body(b)
+		for root in _snare_roots:
+			var d := root.distance_to(at)
+			if d < 14.0 or d > SNARE_REACH:
+				continue
+			# Rather reach up or out to a bird than down at it.
+			var score := absf(d - SNARE_LENGTH) + (12.0 if root.y < at.y - 4.0 else 0.0)
+			if best.is_empty() or score < best["score"]:
+				best = {"score": score, "root": root, "bird": b}
+	if best.is_empty():
+		return false
+	_snare.strike(best["root"], best["bird"])
+	# The leaves rustle where it bursts out, sometimes shaking one loose.
+	_gust = maxf(_gust, 1.0)
+	create_tween().tween_property(self, "_gust", 0.0, 0.8)
+	if randf() < 0.5:
+		_drop_leaf(best["root"])
+	return true
+
+
+## Calls a bird in to land on the crown, for the snare to catch.
+func call_bird() -> void:
+	_birds.call_bird()
+
+
+func _on_snared(b: Dictionary) -> void:
+	var at := GroveBirds.body(b)
+	_birds.burst(b)
+	bird_tapped.emit(design_to_global(at))
 
 
 func _tap(local: Vector2) -> void:

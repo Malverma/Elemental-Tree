@@ -149,7 +149,6 @@ func _build_card(id: String) -> void:
 		var go := UI.button("Enter dungeon", main.start_dungeon.bind(id), "PrimaryButton")
 		go.disabled = not enter["ok"]
 		buttons.append(go)
-		buttons.append(UI.button("Grow troops", main.grow_troops_for.bind(id)))
 		hint = "" if enter["ok"] else enter["msg"]
 	else:
 		var l: Dictionary = GameData.LEVELS[id]
@@ -168,7 +167,6 @@ func _build_card(id: String) -> void:
 			var attack := UI.button("Battle again" if ls["conquered"] else "Attack", main.start_battle.bind(id), "PrimaryButton")
 			attack.disabled = not enter["ok"]
 			buttons.append(attack)
-			buttons.append(UI.button("Grow troops", main.grow_troops_for.bind(id)))
 			hint = "" if enter["ok"] else enter["msg"]
 
 	var row := UI.hbox(12)
@@ -277,11 +275,7 @@ func _level_info(id: String) -> Control:
 	box.add_child(UI.label("%d waves + boss wave. Troops don't heal between waves." % (l["waves"].size() - 1), "Small", true))
 
 	for el in l["elements"]:
-		var counter := GameData.weak_against(el)
-		var tip := UI.hbox(6)
-		tip.add_child(UI.label("Tip: %s troops hit %s foes hard" % [counter.capitalize(), el], "Small"))
-		tip.add_child(UI.icon("icon_" + counter, 24))
-		box.add_child(tip)
+		box.add_child(_matchup(el))
 	if l["elements"].size() > 1:
 		box.add_child(UI.label("Wild twigs guard this land: rival elemental troops, as tough as your own.", "Small", true))
 
@@ -359,11 +353,7 @@ func _dungeon_info(id: String, d: Dictionary) -> Control:
 	box.add_child(UI.label("Enemies", "Heading"))
 	box.add_child(_enemy_chips(d["waves"]))
 	box.add_child(UI.label("%d waves + boss wave. Troops don't heal between waves." % (d["waves"].size() - 1), "Small", true))
-	var counter := GameData.weak_against(el)
-	var tip := UI.hbox(6)
-	tip.add_child(UI.label("Tip: %s troops hit %s foes hard" % [counter.capitalize(), el], "Small"))
-	tip.add_child(UI.icon("icon_" + counter, 24))
-	box.add_child(tip)
+	box.add_child(_matchup(el))
 
 	box.add_child(UI.label("Rewards", "Heading"))
 	var n := GameData.dungeon_reward_count(d["level"])
@@ -398,3 +388,15 @@ func live() -> void:
 	if _stored:
 		var id: String = main.ui["selected_level"]
 		_stored.text = "Stored: %d / %d power" % [floori(Game.level_state(id)["stored"]), GameData.LEVELS[id]["daily_yield"]]
+
+
+## A line on how an element's foes match up: "Water foes: weak against [Nature] · strong against [Fire]".
+func _matchup(el: String) -> HBoxContainer:
+	var row := UI.hbox(6)
+	row.add_child(UI.icon("icon_" + el, 24))
+	row.add_child(UI.label("%s foes: weak against" % UI.capitalize(el), "Small"))
+	row.add_child(UI.icon("icon_" + GameData.weak_against(el), 24))
+	row.add_child(UI.label("%s · strong against" % UI.capitalize(GameData.weak_against(el)), "Small"))
+	row.add_child(UI.icon("icon_" + GameData.strong_against(el), 24))
+	row.add_child(UI.label(UI.capitalize(GameData.strong_against(el)), "Small"))
+	return row

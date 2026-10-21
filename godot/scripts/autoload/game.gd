@@ -58,6 +58,7 @@ func new_game() -> Dictionary:
 		},
 		"troops": [],  # [{ id, type, element }] — element is "" until infused
 		"next_troop_id": 1,
+		"twig_box": _empty_twig_box(1),
 		"formation": [],  # [{ troop_id, row, lane }]
 		"levels": {},  # level_id -> { conquered, stored, clears }
 		"seen_enemies": {},  # enemy_key -> true once it has appeared in a battle
@@ -85,6 +86,11 @@ func _empty_plot() -> Dictionary:
 	return {"seed": "", "grow_left": 0.0, "stored": {}}
 
 
+# The Barracks' summoning box: its tier and what has been injected into it.
+func _empty_twig_box(tier: int) -> Dictionary:
+	return {"tier": tier, "sap": 0.0, "element": "", "power": 0.0}
+
+
 func _load() -> Dictionary:
 	if FileAccess.file_exists(SAVE_PATH):
 		var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
@@ -103,6 +109,9 @@ func _normalize(s: Dictionary) -> Dictionary:
 	for k in ["level", "xp", "prestige", "roots", "trunk", "branches", "tap"]:
 		s["tree"][k] = int(s["tree"][k])
 	s["next_troop_id"] = int(s["next_troop_id"])
+	var box: Dictionary = s.get("twig_box", _empty_twig_box(1))
+	box["tier"] = int(box["tier"])
+	s["twig_box"] = box
 	for t in s["troops"]:
 		t["id"] = int(t["id"])
 		if not t.has("element"):
@@ -529,18 +538,37 @@ func dev_clear_stock() -> Dictionary:
 	return _done(_ok("Sunlight and sap set to 0."))
 
 
+## Developer tool: conquers the land the tree's next level needs (as a first
+## clear would) and grows the tree a level, raising each part a level too.
+func dev_level_up() -> Dictionary:
+	var t: Dictionary = state["tree"]
+	if t["level"] >= GameData.MAX_LEVEL:
+		return _done(_fail("The tree is fully grown. Use Prestige."))
+	_dev_conquer(growth_gate(t["level"]))
+	t["level"] += 1
+	t["xp"] = 0
+	for part in GameData.PART_ORDER:
+		t[part] = mini(t[part] + 1, t["level"])
+	save()
+	return _done(_ok("The tree grows to level %d." % t["level"]))
+
+
+# Marks a land conquered with its first day's power waiting, as a first clear would.
+func _dev_conquer(id: String) -> void:
+	if id == "" or level_state(id)["conquered"]:
+		return
+	state["levels"][id] = {"conquered": true, "stored": float(GameData.LEVELS[id]["daily_yield"]), "clears": 1}
+	for w in GameData.LEVELS[id]["waves"]:
+		mark_enemies_seen(w)
+
+
 ## Developer tool: meets everything the next prestige needs, then prestiges.
 ## Conquers each land that gates the tree's growth (as a first clear would,
 ## with its first day's power waiting on the map), grows the tree to the max
 ## level with full prestige growth, and starts the tree over.
 func dev_prestige() -> Dictionary:
 	for lvl in range(1, GameData.MAX_LEVEL + 1):
-		var id := growth_gate(lvl)
-		if id == "" or level_state(id)["conquered"]:
-			continue
-		state["levels"][id] = {"conquered": true, "stored": float(GameData.LEVELS[id]["daily_yield"]), "clears": 1}
-		for w in GameData.LEVELS[id]["waves"]:
-			mark_enemies_seen(w)
+		_dev_conquer(growth_gate(lvl))
 	state["tree"]["level"] = GameData.MAX_LEVEL
 	state["tree"]["xp"] = GameData.prestige_cost()
 	var res := _prestige()
@@ -573,7 +601,20 @@ func upgrade_part(part: String) -> Dictionary:
 	for res in cost:
 		state["resources"][res] -= cost[res]
 	state["tree"][part] += 1
-	return _done(_ok("%s upgraded to level %d." % [GameData.PARTS[part]["name"], state["tree"][part]]))
+	var msg := "%s upgraded to level %d." % [GameData.PARTS[part]["name"], state["tree"][part]]
+	for perk in GameData.PARTS[part].get("perks", []):
+		if perk["level"] == state["tree"][part]:
+			msg += " %s unlocked: %s!" % [perk["kind"], perk["name"]]
+	return _done(_ok(msg))
+
+
+## Whether a tree part's perk (see GameData.PARTS "perks") is unlocked.
+func has_perk(id: String) -> bool:
+	for part in GameData.PART_ORDER:
+		for perk in GameData.PARTS[part].get("perks", []):
+			if perk["id"] == id:
+				return state["tree"][part] >= perk["level"]
+	return false
 
 
 func can_buy_plot() -> Dictionary:
@@ -607,33 +648,126 @@ func troop_lock_reason(type: String) -> String:
 	return ""
 
 
-func can_summon(type: String) -> Dictionary:
-	var def: Dictionary = GameData.TROOPS[type]
-	var lock := troop_lock_reason(type)
-	if lock != "":
-		return _fail(lock + ".")
+# --- Root box ----------------------------------------------------------------
+
+## Unlocked troop types the root box can yield.
+func box_pool() -> Array:
+	return GameData.TROOP_ORDER.filter(func(t): return troop_lock_reason(t) == "")
+
+
+## The odds of the box as it stands (see GameData.box_odds).
+func box_odds() -> Dictionary:
+	var box: Dictionary = state["twig_box"]
+	return GameData.box_odds(box["tier"], box["sap"], GameData.element_troop(box["element"]), box["power"], box_pool(),
+		state["tree"]["prestige"])
+
+
+## Pours one step of sap into the box, up to its brim.
+func inject_sap() -> Dictionary:
+	var box: Dictionary = state["twig_box"]
+	var def := GameData.twig_box(box["tier"])
+	var room: float = def["max_sap"] - box["sap"]
+	if room <= 0.0:
+		return _done(_fail("The box is brimming with sap."))
+	var amount := minf(minf(def["sap_step"], room), floorf(state["resources"]["sap"]))
+	if amount <= 0.0:
+		return _done(_fail("No sap to inject."))
+	state["resources"]["sap"] -= amount
+	box["sap"] += amount
+	return _done(_ok())
+
+
+## Why `element`'s power can't go into the box, or "" if it can.
+func power_block(element: String) -> String:
+	var box: Dictionary = state["twig_box"]
+	if not has_conquered_element(element):
+		var article := "an" if element in ["ice"] else "a"
+		return "Conquer %s %s land first." % [article, element]
+	if box["element"] != "" and box["element"] != element:
+		return "The box already holds %s energy." % box["element"]
+	if box["power"] >= GameData.BOX_MAX_POWER:
+		return "The box can't hold more energy."
+	if state["resources"]["power"][element] < 1.0:
+		return "No %s power to inject." % element
+	return ""
+
+
+## Injects one point of an element's power, favouring that element's troop.
+func inject_power(element: String) -> Dictionary:
+	var block := power_block(element)
+	if block != "":
+		return _done(_fail(block))
+	var box: Dictionary = state["twig_box"]
+	state["resources"]["power"][element] -= 1.0
+	box["element"] = element
+	box["power"] += 1.0
+	return _done(_ok())
+
+
+func can_open_box() -> Dictionary:
+	var box: Dictionary = state["twig_box"]
 	if state["troops"].size() >= roster_cap():
 		return _fail("Roster is full.")
-	if state["resources"]["sap"] < def["sap_cost"]:
-		return _fail("Need %d sap." % def["sap_cost"])
-	if def.has("power_cost") and state["resources"]["power"][def["element"]] < def["power_cost"]:
-		return _fail("Need %d %s power." % [def["power_cost"], def["element"]])
+	var need: int = GameData.twig_box(box["tier"])["min_sap"]
+	if box["sap"] < need:
+		return _fail("Inject at least %d sap to open the box." % need)
 	return _ok()
 
 
-func summon(type: String) -> Dictionary:
-	var check := can_summon(type)
+## Opens the box: rolls a troop from its odds and uses up everything injected.
+## The result carries the new troop under "troop".
+func open_box() -> Dictionary:
+	var check := can_open_box()
 	if not check["ok"]:
 		return _done(check)
-	var def: Dictionary = GameData.TROOPS[type]
-	state["resources"]["sap"] -= def["sap_cost"]
-	if def.has("power_cost"):
-		state["resources"]["power"][def["element"]] -= def["power_cost"]
+	var odds: Dictionary = box_odds()["types"]
+	var type := ""
+	var roll := randf()
+	for t in odds:
+		type = t
+		roll -= odds[t]
+		if roll < 0.0:
+			break
+	state["twig_box"] = _empty_twig_box(state["twig_box"]["tier"])
+	var troop := grant_troop(type)
+	var res := _ok()  # the Barracks reveals it
+	res["troop"] = troop
+	return _done(res)
+
+
+## Adds a new troop of `type` to the roster (and the formation, if there's room).
+func grant_troop(type: String) -> Dictionary:
 	var troop := {"id": state["next_troop_id"], "type": type, "element": ""}
 	state["next_troop_id"] += 1
 	state["troops"].append(troop)
 	_auto_place(troop)
-	return _done(_ok("A %s sprouts from the trunk." % def["name"]))
+	return troop
+
+
+func can_upgrade_box() -> Dictionary:
+	var tier: int = state["twig_box"]["tier"]
+	if tier >= GameData.TWIG_BOXES.size():
+		return _fail("The box is fully grown.")
+	var next := GameData.twig_box(tier + 1)
+	if state["tree"]["level"] < next["unlock_level"]:
+		return _fail("Grow the tree to level %d first." % next["unlock_level"])
+	for res in next["cost"]:
+		if state["resources"][res] < next["cost"][res]:
+			return _fail("Need %d %s." % [next["cost"][res], res])
+	return _ok()
+
+
+## Upgrades the box a tier. What was injected stays in it.
+func upgrade_box() -> Dictionary:
+	var check := can_upgrade_box()
+	if not check["ok"]:
+		return _done(check)
+	var box: Dictionary = state["twig_box"]
+	var next := GameData.twig_box(box["tier"] + 1)
+	for res in next["cost"]:
+		state["resources"][res] -= next["cost"][res]
+	box["tier"] += 1
+	return _done(_ok("The box grows into a %s." % next["name"]))
 
 
 func can_infuse(troop_id: int, element: String) -> Dictionary:
@@ -765,6 +899,16 @@ func take_queued_potions() -> Array:
 	state["queued_potions"] = []
 	save()
 	return out
+
+
+## Picks a battle's potion mushroom, adding its potion to the inventory.
+func pick_battle_shroom(b: BattleSim) -> Dictionary:
+	var id := b.pick_shroom()
+	if id == "":
+		return _fail("")
+	state["items"][id] = item_count(id) + 1
+	save()
+	return _done(_ok("Picked a mushroom: +1 %s!" % GameData.ITEMS[id]["name"]))
 
 
 ## Drinks a potion during a battle or expedition; it takes effect at once.

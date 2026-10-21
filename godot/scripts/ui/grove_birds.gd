@@ -63,17 +63,22 @@ func pop_at(p: Vector2) -> bool:
 			best = {"b": b, "d": d}
 	if best.is_empty():
 		return false
-	var b: Dictionary = best["b"]
-	var at: Vector2 = b["node"].position + Vector2(0, -4)
+	burst(best["b"])
+	return true
+
+
+## Bursts bird `b` into a puff and feathers.
+func burst(b: Dictionary) -> void:
+	var at := body(b)
 	_birds.erase(b)
 	b["node"].queue_free()
-	var burst := _pop_sprite(b["kind"], 0, at)
-	var tw := burst.create_tween()
+	var puff := _pop_sprite(b["kind"], 0, at)
+	var tw := puff.create_tween()
 	for f in range(1, POP_FRAMES):
 		tw.tween_interval(0.07)
-		tw.tween_callback(func(): burst.frame = b["kind"] * POP_COLS + f)
+		tw.tween_callback(func(): puff.frame = b["kind"] * POP_COLS + f)
 	tw.tween_interval(0.07)
-	tw.tween_callback(burst.queue_free)
+	tw.tween_callback(puff.queue_free)
 	# Feathers land where the bird stood, or on the meadow below the tree and sky.
 	var floor_y: float = b["to"].y if b["where"] == "ground" and b["state"] == "sit" else randf_range(306.0, 350.0)
 	for i in randi_range(1, 3):
@@ -81,7 +86,26 @@ func pop_at(p: Vector2) -> bool:
 		_feathers.append({"node": s, "kind": b["kind"], "x": at.x, "y": at.y, "t": randf() * TAU,
 			"vx": randf_range(-28.0, 28.0), "vy": randf_range(-26.0, -8.0),
 			"ground": floor_y + randf_range(-2.0, 4.0), "drift": randf_range(1.5, 3.0)})
-	return true
+
+
+## Where bird `b`'s body is (its origin sits at its feet).
+static func body(b: Dictionary) -> Vector2:
+	return b["node"].position + Vector2(0, -4)
+
+
+func is_alive(b: Dictionary) -> bool:
+	return b in _birds
+
+
+## Birds in view, for the snare branch to aim at.
+func visible_birds() -> Array:
+	return _birds.filter(func(b): return body(b).x > scene.view_left + 4.0 and body(b).x < scene.view_right - 4.0 and body(b).y > 4.0)
+
+
+## Calls a bird in to land on the crown, unless one is already there or on its way.
+func call_bird() -> void:
+	if _count("tree") == 0:
+		_visit("tree", _perch_spot())
 
 
 func _pop_sprite(kind: int, f: int, at: Vector2) -> Sprite2D:

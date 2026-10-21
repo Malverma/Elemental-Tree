@@ -2,7 +2,16 @@
 # menu bars and pull-up chevron. Cell order is ICONS; the chevron (9x6) sits in the last cell.
 var img: Image
 const ICONS := ["icon_sunlight", "icon_sap", "icon_nature", "icon_water", "icon_fire", "icon_ice", "icon_dark",
-	"icon_inventory", "item_thorn_draught", "item_bark_brew", "item_reach_tonic", "icon_menu", "handle_up"]
+	"icon_inventory", "item_thorn_draught", "item_bark_brew", "item_reach_tonic", "item_keen_elixir", "item_gale_brew", "icon_menu", "handle_up",
+	"shroom_thorn_draught", "shroom_bark_brew", "shroom_reach_tonic", "shroom_keen_elixir", "shroom_gale_brew"]
+# Each potion's liquid (dark, mid, light). Its battlefield mushroom wears the same colours.
+const POTION_LIQUID := {
+	"thorn_draught": [Color("#9e2a26"), Color("#d9534f"), Color("#ff9c8f")],
+	"bark_brew": [Color("#173d22"), Color("#2a6a3a"), Color("#5ea86a")],
+	"reach_tonic": [Color("#16346a"), Color("#2a58a0"), Color("#78a8e0")],
+	"keen_elixir": [Color("#b07a12"), Color("#ffc93c"), Color("#fff1a8")],
+	"gale_brew": [Color("#2a7f78"), Color("#62d2c2"), Color("#d4fff6")],
+}
 
 func px(x, y, c):
 	if x >= 0 and y >= 0 and x < img.get_width() and y < img.get_height():
@@ -52,43 +61,65 @@ func drop(ox, pal: Array):
 				px(ox + x, y, pal[2] if t > 0.4 else (pal[1] if t > -0.35 else pal[0]))
 	px(ox + 9, 8, Color.WHITE); px(ox + 9, 9, pal[2]); px(ox + 10, 10, pal[2])
 
-func flask(ox, liquid: Array, tall: bool):
-	var glass = Color("#e8f4f0")
-	var cork = [Color("#8a5530"), Color("#b07d48")]
-	if tall:
-		pattern(ox, 0, [
-			"......cC........",
-			"......cC........",
-			".....gggg.......",
-			"......gg........",
-			"......gg........",
-			".....gLLg.......",
-			"....gLLLLg......",
-			"...gLLLLLLg.....",
-			"...gLLLLLLg.....",
-			"...gLlLLLLg.....",
-			"...gLlLLLLg.....",
-			"...gLLLLLDg.....",
-			"...gDDDDDDg.....",
-			"....gggggg......",
-		], {"c": cork[0], "C": cork[1], "g": glass, "L": liquid[1], "l": liquid[2], "D": liquid[0]})
-	else:
-		pattern(ox, 0, [
-			"......cC........",
-			"......cC........",
-			".....gggg.......",
-			"......gg........",
-			"......gg........",
-			"....gLLLLg......",
-			"...gLLLLLLg.....",
-			"..gLLlLLLLLg....",
-			"..gLlLLLLLLg....",
-			"..gLLLLLLLLg....",
-			"..gLLLLLLLDg....",
-			"...gDLLLLDg.....",
-			"....gDDDDg......",
-			".....gggg.......",
-		], {"c": cork[0], "C": cork[1], "g": glass, "L": liquid[1], "l": liquid[2], "D": liquid[0]})
+# Every potion shares one tall, square-shouldered bottle with a bark root wound
+# around its middle; only the liquid's colour tells them apart.
+func potion(ox, liquid: Array):
+	pattern(ox, 0, [
+		".......cC.......",
+		".......cC.......",
+		"......gggg......",
+		".......gg.......",
+		"......gLLg......",
+		".....gLLLLg.....",
+		"....gLlLLLLg....",
+		"....gLlLLLLg....",
+		"....gLlLLLLg....",
+		"....gLLLLLLg....",
+		"....gLLLLLLg....",
+		"....gLLLLLLg....",
+		"....gLLLLLDg....",
+		"....gDDDDDDg....",
+		".....gggggg.....",
+	], {"c": Color("#8a5530"), "C": Color("#b07d48"), "g": Color("#e8f4f0"), "L": liquid[1], "l": liquid[2], "D": liquid[0]})
+	var bark = [Color("#3a2212"), Color("#6a4226"), Color("#9a6a40")]
+	# Behind the bottle the root shows darker through the liquid, from upper right to lower left.
+	for x in range(5, 11):
+		px(ox + x, int(round(9.0 + (10 - x) * 0.6)), liquid[0].darkened(0.45))
+	# In front it climbs from lower left to upper right, hugging the glass at both sides.
+	for x in range(4, 12):
+		var y = int(round(11.0 - (x - 4) * 0.38))
+		px(ox + x, y, bark[2] if x % 3 == 0 else bark[1])
+		px(ox + x, y + 1, bark[0])
+
+# A battlefield mushroom in a potion's colours: tap it in battle for that potion.
+# Drawn like the battlefields' own mushrooms (see battlefields.gd MUSH_BIG), one
+# size up so it stands out to tap, and outlined the same way.
+func shroom(ox, cap: Array):
+	var rows := [
+		"...MML...",
+		"..MMMLL..",
+		".MSMMMLL.",
+		"MSSMMMSLM",
+		"DMMMMSSMM",
+		".DDDDDDD.",
+		"...TTt...",
+		"...TTt...",
+		"...TTt...",
+	]
+	var oy = 14 - rows.size()
+	var cx = ox + 4
+	pattern(cx - 4 + 3, oy, rows, {"M": cap[1], "L": cap[2], "D": cap[0], "S": Color("#fff6e8"), "T": Color("#e8dcc8"), "t": Color("#b8a890")})
+	# A dark edge in a shade of what it borders, as the battlefield props have.
+	var ref = img.duplicate()
+	for y in 16:
+		for x in range(ox, ox + 16):
+			if ref.get_pixel(x, y).a > 0.0:
+				continue
+			for d in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1)]:
+				var q = Vector2i(x, y) + d
+				if q.x >= ox and q.x < ox + 16 and q.y >= 0 and q.y < 16 and ref.get_pixel(q.x, q.y).a > 0.0:
+					img.set_pixel(x, y, ref.get_pixel(q.x, q.y).darkened(0.72))
+					break
 
 func icon(name: String, ox: int):
 	match name:
@@ -192,21 +223,10 @@ func icon(name: String, ox: int):
 				".BDDDDDDDDDDDDB.",
 				"..BBBBBBBBBBBB..",
 			], {"B": Color("#5e3a20"), "L": Color("#b07d48"), "M": Color("#9c6b3c"), "D": Color("#7a4e26"), "Y": Color("#ffd447")})
-		"item_thorn_draught":
-			flask(ox, [Color("#9e2a26"), Color("#d9534f"), Color("#ff9c8f")], true)
-			px(ox + 2, 8, Color("#3f7a2a")); px(ox + 11, 10, Color("#3f7a2a")); px(ox + 2, 11, Color("#3f7a2a"))
-		"item_bark_brew":
-			flask(ox, [Color("#a8324a"), Color("#e8556d"), Color("#ffb3c1")], false)
-		"item_reach_tonic":
-			flask(ox, [Color("#2f6fa8"), Color("#5bb4e8"), Color("#bfe6ff")], true)
-			# A small arrow flying up and out: troops strike from farther away.
-			pattern(ox + 10, 1, [
-				"..AAA",
-				"...AA",
-				"..A.A",
-				".A...",
-				"A....",
-			], {"A": Color("#ffd447")})
+		"item_thorn_draught", "item_bark_brew", "item_reach_tonic", "item_keen_elixir", "item_gale_brew":
+			potion(ox, POTION_LIQUID[name.trim_prefix("item_")])
+		"shroom_thorn_draught", "shroom_bark_brew", "shroom_reach_tonic", "shroom_keen_elixir", "shroom_gale_brew":
+			shroom(ox, POTION_LIQUID[name.trim_prefix("shroom_")])
 		"icon_menu":
 			# Three rounded bars, white with a dark rim like the chevron, for green buttons.
 			var bar = ".WWWWWWWWWWWW."

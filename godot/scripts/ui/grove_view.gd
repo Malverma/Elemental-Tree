@@ -15,6 +15,8 @@ var _tap_sun: Label
 var _tap_sap: Label
 
 
+var _app_active := true  # false while the app is in the background or unfocused
+
 func _init(p_main: Control) -> void:
 	main = p_main
 
@@ -185,6 +187,11 @@ func _part_card(part: String) -> Control:
 	head.add_child(effect)
 	box.add_child(head)
 	box.add_child(UI.label(GameData.PARTS[part]["blurb"], "Small", true))
+	for perk in GameData.PARTS[part].get("perks", []):
+		var have: bool = lvl >= perk["level"]
+		var line := UI.label("%s %s · %s: %s" % ["✦" if have else "Lv %d ·" % perk["level"], perk["kind"], perk["name"], perk["desc"]], "Small", true)
+		line.add_theme_color_override("font_color", UI.ROOT_GLOW if have else UI.SHEET_MUTED)
+		box.add_child(line)
 	var row := UI.hbox(10)
 	row.add_child(UI.cost_row(Game.part_cost(part), s["resources"]))
 	row.add_child(UI.spacer())
@@ -219,6 +226,32 @@ func _on_bird(at: Vector2) -> void:
 			main.pop_text("+%d %s" % [drop["amount"], drop["id"]], at, GameData.BIOME_COLORS[drop["id"]])
 		"item":
 			main.pop_text(GameData.ITEMS[drop["id"]]["name"], at, UI.ACCENT)
+
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED:
+			_app_active = false
+		NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_APPLICATION_RESUMED:
+			_app_active = true
+
+
+# Bird Targeting counts down only while the Grove is the screen in front of
+# the player: not behind a battle, half-swiped in, or with the app in the
+# background (where nothing runs anyway).
+func _process(delta: float) -> void:
+	if not (Game.has_perk("bird_targeting") and main.tab == "grove" and main._view == self
+			and main._battle == null and _app_active):
+		return
+	GroveScene.snare_in -= delta
+	if GroveScene.snare_in > 0.0:
+		return
+	if _scene.snare_bird():
+		GroveScene.snare_in = GameData.BIRD_TARGET_SECONDS
+	else:
+		# No bird in reach yet: call one in and try again shortly.
+		_scene.call_bird()
+		GroveScene.snare_in = 0.5
 
 
 ## Called every second by the shell to refresh production counters.

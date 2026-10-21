@@ -67,6 +67,11 @@ func _run() -> void:
 	for i in 10:
 		game.tap_trunk()
 	_check(game.state["resources"]["sap"] == 10, "10 trunk taps give 10 sap")
+	var cycle_ok := true
+	for pair in [["nature", "water", "dark"], ["water", "fire", "nature"], ["fire", "ice", "water"], ["ice", "dark", "fire"], ["dark", "nature", "ice"]]:
+		cycle_ok = cycle_ok and GameData.element_multiplier(pair[0], pair[1]) > 1.0 and GameData.element_multiplier(pair[0], pair[2]) < 1.0 \
+			and GameData.strong_against(pair[0]) == pair[1] and GameData.weak_against(pair[0]) == pair[2]
+	_check(cycle_ok, "nature beats water, water fire, fire ice, ice dark, dark nature")
 	var taps_ok := true
 	for lvl in range(0, GameData.MAX_LEVEL + 1):
 		var taps: float = GameData.xp_to_next(lvl + 1) / float(GameData.tap_sunlight(lvl))
@@ -188,9 +193,9 @@ func _run() -> void:
 
 	main.switch_tab("barracks")
 	await _frames()
-	game.summon("soldier")
-	game.summon("soldier")
-	game.summon("spearman")
+	game.grant_troop("soldier")
+	game.grant_troop("soldier")
+	game.grant_troop("spearman")
 	await _frames()
 	_check(game.state["formation"].size() == 3, "summoned troops auto-placed")
 	var formation0: Array = game.state["formation"].duplicate(true)
@@ -200,7 +205,7 @@ func _run() -> void:
 	game.state["formation"] = formation0
 	await _frames()
 	var spare_id: int = game.state["troops"][-1]["id"]
-	game.summon("soldier")
+	game.grant_troop("soldier")
 	var gone_id: int = game.state["troops"][-1]["id"]
 	main._view._drop_on_fire(Vector2.ZERO, {"roster_troop": gone_id})
 	_check(game.troop_by_id(gone_id).is_empty() and game.troop_by_id(spare_id), "dropping a troop on the campfire dismisses it")
@@ -280,13 +285,111 @@ func _run() -> void:
 	game.state["resources"]["power"]["nature"] = 50.0
 	game.state["levels"]["sunny_meadow"]["conquered"] = true
 	_check(game.troop_lock_reason("tide_caller") != "", "water troop locked before conquering a water land")
-	_check(game.summon("vine_lasher")["ok"], "nature troop unlocked by conquering the meadow")
+	_check("vine_lasher" in game.box_pool() and not "tide_caller" in game.box_pool(), "nature troop joins the root box by conquering the meadow")
+	# The root box: sap tilts the odds, energy favours its element, opening rolls a troop.
+	main.switch_tab("barracks")
+	await _frames()
+	var bare: Dictionary = GameData.box_odds(1, 30, "", 0, game.box_pool())
+	var total := 0.0
+	for type in bare["types"]:
+		total += bare["types"][type]
+	_check(is_equal_approx(total, 1.0), "root box odds add up to 1")
+	var leads := []
+	for sap in [30, 75, 150]:
+		var by_type: Dictionary = GameData.box_odds(1, sap, "", 0, GameData.BASE_TROOPS + ["vine_lasher"])["types"]
+		var top := ""
+		for type in by_type:
+			if top == "" or by_type[type] > by_type[top]:
+				top = type
+		leads.append(top)
+	_check(leads == ["soldier", "guard", "archer"], "a Root Box favours soldiers at 30 sap, guards at 75, archers at 150 (%s)" % [leads])
+	# Bird Targeting: Branches 7 unlocks a snare branch that pops a bird each minute in the Grove.
+	var branches0: int = game.state["tree"]["branches"]
+	game.state["tree"]["branches"] = 6
+	_check(not game.has_perk("bird_targeting"), "no Bird Targeting below Branches 7")
+	game.state["tree"]["branches"] = 7
+	_check(game.has_perk("bird_targeting"), "Branches 7 unlocks Bird Targeting")
+	GroveScene.snare_in = 5.0
+	await _frames(10)
+	_check(GroveScene.snare_in == 5.0, "the snare waits while the Grove isn't open")
+	main.switch_tab("grove")
+	await _frames(5)
+	var grove_view = main._view
+	var grove_birds: GroveBirds = grove_view._scene._birds
+	var spot: Vector2 = grove_birds._perch_spot()
+	grove_birds._visit("tree", spot)
+	var perched: Dictionary = grove_birds._birds[-1]
+	perched["node"].position = spot
+	perched["state"] = "sit"
+	perched["stay"] = 30.0
+	var stock0: float = game.state["resources"]["sap"] + game.state["resources"]["sunlight"] + game.item_count("thorn_draught") + game.item_count("bark_brew") + game.item_count("reach_tonic")
+	for el in GameData.ELEMENTS:
+		stock0 += game.state["resources"]["power"][el]
+	GroveScene.snare_in = 0.05
+	await create_timer(1.5).timeout
+	var stock1: float = game.state["resources"]["sap"] + game.state["resources"]["sunlight"] + game.item_count("thorn_draught") + game.item_count("bark_brew") + game.item_count("reach_tonic")
+	for el in GameData.ELEMENTS:
+		stock1 += game.state["resources"]["power"][el]
+	_check(not grove_birds.is_alive(perched) and stock1 > stock0 and GroveScene.snare_in > 50.0, "the snare branch pops the bird, collects its drop and waits a minute")
+	game.state["tree"]["branches"] = branches0
+	main.switch_tab("barracks")
+	await _frames(5)
+	var lvl0: int = game.state["tree"]["level"]
+	var gate0: String = game.growth_gate(lvl0)
+	var tree_before: Dictionary = game.state["tree"].duplicate()
+	var levels_before: Dictionary = game.state["levels"].duplicate(true)
+	game.dev_level_up()
+	_check(game.state["tree"]["level"] == lvl0 + 1 and (gate0 == "" or game.level_state(gate0)["conquered"]) and game.state["tree"]["trunk"] == mini(tree_before["trunk"] + 1, lvl0 + 1),
+		"the dev button conquers the gate land and grows the tree and its parts a level")
+	game.state["tree"] = tree_before
+	game.state["levels"] = levels_before
+	var pool_all: Array = GameData.TROOP_ORDER
+	var odds_p0: Dictionary = GameData.box_odds(1, 75, "", 0, pool_all)["rarity"]
+	var odds_p5: Dictionary = GameData.box_odds(1, 75, "", 0, pool_all, 5)["rarity"]
+	_check(odds_p5["rare"] > odds_p0["rare"] and odds_p5["epic"] > odds_p0["epic"] and odds_p5["common"] < odds_p0["common"], "prestige tilts root box odds toward rarer troops")
+	_check(game.can_open_box()["ok"] == false, "an empty root box can't open")
+	var box_sap0: float = game.state["resources"]["sap"]
+	game.inject_sap()
+	game.inject_sap()
+	_check(game.state["twig_box"]["sap"] == 30.0 and game.state["resources"]["sap"] == box_sap0 - 30.0, "injecting sap moves it into the box")
+	for i in 10:
+		main._view._on_inject_sap()
+	var full: Dictionary = game.box_odds()
+	_check(game.state["twig_box"]["sap"] == 150.0 and full["rarity"]["rare"] > bare["rarity"]["rare"], "more sap, better odds (and the box brims)")
+	game.inject_power("nature")
+	game.inject_power("nature")
+	_check(game.box_odds()["types"]["vine_lasher"] > full["types"]["vine_lasher"], "nature energy favours the Vine Lasher")
+	_check(game.power_block("water") != "", "a second element can't go in")
+	for tier in [1, 2, 3]:
+		var focused: Dictionary = GameData.box_odds(tier, 0, "vine_lasher", GameData.BOX_MAX_POWER, game.box_pool())["types"]
+		var sum := 0.0
+		for type in focused:
+			sum += focused[type]
+		_check(is_equal_approx(focused["vine_lasher"], 0.95) and is_equal_approx(sum, 1.0), "10 nature energy in a tier %d box: 95%% Vine Lasher" % tier)
+	game.state["resources"]["sap"] += 90.0
+	game.state["twig_box"]["sap"] = 30.0
+	var troops0: int = game.state["troops"].size()
+	main._view._lower_at = main._view._lower.scroll_vertical
+	main._view._on_box_tapped()
+	var new_id: int = game.state["troops"][-1]["id"]
+	_check(game.state["troops"].size() == troops0 + 1 and game.state["twig_box"]["sap"] == 0.0, "tapping the box opens it: a troop, and the box empties")
+	await _frames()
+	_check(main._view._token_for(new_id).modulate.a == 0.0, "the new troop's token waits while its card is out")
+	await create_timer(4.5).timeout
+	_check(not main._view._opening and main._view._token_for(new_id).modulate.a == 1.0, "the card drops into the roster and the box returns")
+	game.state["tree"]["level"] = 3
+	game.state["resources"]["sunlight"] += 300.0
+	game.state["resources"]["sap"] += 250.0
+	_check(game.upgrade_box()["ok"] and game.state["twig_box"]["tier"] == 2, "the box upgrades to a Bark Box")
+	_check(not game.upgrade_box()["ok"], "the Heartwood Box waits for tree level 6")
+	game.state["tree"]["level"] = 1
+	game.state["twig_box"]["tier"] = 1
 	var base_id := -1
 	for troop in game.state["troops"]:
 		if troop["type"] == "soldier":
 			base_id = troop["id"]
 	if base_id < 0:
-		game.summon("soldier")
+		game.grant_troop("soldier")
 		base_id = game.state["troops"][-1]["id"]
 	main.ui["selected_troop"] = base_id
 	main.switch_tab("barracks")

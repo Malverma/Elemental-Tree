@@ -64,6 +64,7 @@ class Projectile:
 	var attacker: Unit
 	var target: Unit
 	var dmg: float
+	var crit := false
 	var color: Color
 	var done := false
 
@@ -74,6 +75,7 @@ class DamagePopup:
 	var t := 0.0
 	var side: String
 	var burn := false
+	var crit := false
 
 
 var level_id: String  # "grove" for an expedition
@@ -101,6 +103,10 @@ var loot_seeds := {}  # seed_id -> count
 var loot_power := {}  # element -> power from defeated foes
 # Potions drunk this battle: item_id -> index of the last wave they last through.
 var potions := {}
+# A potion mushroom growing beside the field (see GameData.SHROOM_CHANCE): the
+# item it gives, or "" if there's none or it has been picked.
+var shroom := ""
+var shroom_pos := Vector2.ZERO
 
 
 # formation: [{ "troop": {id, type, element}, "row": "front"|"middle"|"back", "lane": 0..2 }]
@@ -123,6 +129,10 @@ func _init(p_level_id: String, formation: Array, p_expedition := false, p_potion
 	_spawn_wave(0)
 	for id in p_potions:
 		drink(id)
+	if not expedition and randf() < GameData.SHROOM_CHANCE:
+		shroom = GameData.ITEM_ORDER.pick_random()
+		# Just outside the lane band, where the troops never stand on it.
+		shroom_pos = Vector2(MIN_X - 26.0 if randf() < 0.5 else MAX_X + 26.0, randf_range(320.0, 540.0))
 
 
 ## An expedition from the Home Grove (its waves don't belong to any land).
@@ -183,7 +193,7 @@ func potion_waves_left(id: String) -> int:
 	return potions[id] - _potion_start() + 1 if potions.has(id) else 0
 
 
-## Total boost from active potions with this effect ("dmg", "hp" or "reach").
+## Total boost from active potions with this effect (see GameData.ITEMS).
 func boost(effect: String) -> float:
 	var total := 0.0
 	for id in potions:
@@ -195,6 +205,13 @@ func boost(effect: String) -> float:
 # Between waves a potion starts with the coming wave rather than the cleared one.
 func _potion_start() -> int:
 	return wave + 1 if phase == "intermission" or phase == "checkpoint" else wave
+
+
+## Picks the mushroom, returning the item it gives (or "" if there is none).
+func pick_shroom() -> String:
+	var id := shroom
+	shroom = ""
+	return id
 
 
 func can_drink(id: String) -> bool:
@@ -291,22 +308,27 @@ func _damage_for(attacker: Unit, target: Unit) -> float:
 	return dmg * (0.9 + randf() * 0.2)
 
 
-func _popup(target: Unit, amount: float, burn := false) -> void:
+func _crit_chance(attacker: Unit) -> float:
+	return GameData.CRIT_CHANCE + (boost("crit") if attacker.side == "ally" else 0.0)
+
+
+func _popup(target: Unit, amount: float, burn := false, crit := false) -> void:
 	var p := DamagePopup.new()
 	p.pos = target.pos - Vector2(0, target.size / 2)
 	p.text = "-%d" % maxi(1, roundi(amount))
 	p.side = target.side
 	p.burn = burn
+	p.crit = crit
 	popups.append(p)
 
 
-func _apply_damage(target: Unit, dmg: float, show := true) -> void:
+func _apply_damage(target: Unit, dmg: float, show := true, crit := false) -> void:
 	if not target.alive():
 		return
 	target.hp = maxf(0.0, target.hp - dmg)
 	if show:
 		target.flash = 0.15
-		_popup(target, dmg)
+		_popup(target, dmg, false, crit)
 	if target.alive():
 		return
 	if target.side == "ally":
@@ -317,12 +339,12 @@ func _apply_damage(target: Unit, dmg: float, show := true) -> void:
 
 
 # A landed hit: armor, damage, then the attacker's elemental on-hit abilities.
-func _hit(attacker: Unit, target: Unit, dmg: float) -> void:
+func _hit(attacker: Unit, target: Unit, dmg: float, crit := false) -> void:
 	if not target.alive():
 		return
 	dmg *= 1.0 - target.def.get("armor", 0.0)
 	var dealt := minf(dmg, target.hp)
-	_apply_damage(target, dmg)
+	_apply_damage(target, dmg, true, crit)
 	var a := attacker.def
 	if a.has("lifesteal") and attacker.alive():
 		attacker.hp = minf(attacker.max_hp, attacker.hp + dealt * a["lifesteal"])
@@ -333,6 +355,8 @@ func _hit(attacker: Unit, target: Unit, dmg: float) -> void:
 				_apply_damage(f, dmg * a["cleave"] * (1.0 - f.def.get("armor", 0.0)))
 	if not target.alive():
 		return
+	if attacker.side == "ally":
+		_knock_back(attacker, target, boost("knockback"))
 	# Melee troops hold the line: a foe they hit turns to fight them.
 	if attacker.side == "ally" and a["reach"] <= 2 and not target.def.get("boss", false):
 		target.taunted_by = attacker
@@ -344,6 +368,20 @@ func _hit(attacker: Unit, target: Unit, dmg: float) -> void:
 		target.slow_t = GameData.SLOW_TIME
 	if a.has("freeze") and randf() < a["freeze"]:
 		target.frozen_t = GameData.FREEZE_TIME
+
+
+# Pushes `target` up to `push` pixels straight away from `attacker`.
+func _knock_back(attacker: Unit, target: Unit, push: float) -> void:
+	if push <= 0.0:
+		return
+	if target.def.get("large", false) or target.def.get("boss", false):
+		push *= GameData.KNOCKBACK_HEAVY
+	var away := target.pos - attacker.pos
+	if away.length() < 0.01:
+		away = Vector2.UP if attacker.side == "ally" else Vector2.DOWN
+	target.pos += away.normalized() * push
+	target.pos.x = clampf(target.pos.x, MIN_X, MAX_X)
+	target.pos.y = clampf(target.pos.y, 30.0, H - 30.0)
 
 
 # Burning, regeneration and timers. Returns false if the unit can't act this step.
@@ -394,16 +432,20 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 	elif unit.cd <= 0.0:
 		unit.cd = unit.def["cooldown"] * (1.3 if slowed else 1.0)
 		var dmg := _damage_for(unit, t)
+		var crit := randf() < _crit_chance(unit)
+		if crit:
+			dmg *= GameData.CRIT_MULT
 		if unit.def.has("projectile"):
 			var p := Projectile.new()
 			p.pos = unit.pos - Vector2(0, 6)
 			p.attacker = unit
 			p.target = t
 			p.dmg = dmg
+			p.crit = crit
 			p.color = unit.def["projectile"]
 			projectiles.append(p)
 		else:
-			_hit(unit, t, dmg)
+			_hit(unit, t, dmg, crit)
 	# Keep units from stacking on top of each other.
 	for f in friends:
 		if f == unit or not f.alive():
@@ -454,7 +496,7 @@ func step(dt: float) -> void:
 		var d := p.pos.distance_to(p.target.pos)
 		var s := PROJECTILE_SPEED * dt
 		if d <= s or not p.target.alive():
-			_hit(p.attacker, p.target, p.dmg)
+			_hit(p.attacker, p.target, p.dmg, p.crit)
 			p.done = true
 		else:
 			p.pos += (p.target.pos - p.pos) / d * s

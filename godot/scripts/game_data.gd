@@ -4,7 +4,7 @@ class_name GameData
 const ELEMENTS := ["nature", "water", "fire", "ice", "dark"]
 
 # Each element is strong against the next one in this cycle (spec §6.4).
-const STRONG_AGAINST := {"water": "fire", "fire": "ice", "ice": "nature", "nature": "dark", "dark": "water"}
+const STRONG_AGAINST := {"nature": "water", "water": "fire", "fire": "ice", "ice": "dark", "dark": "nature"}
 
 const STORAGE_CAP_MINUTES := 24.0 * 60.0
 const TAP_SUNLIGHT := 1
@@ -140,6 +140,10 @@ const PARTS := {
 	"branches": {
 		"name": "Branches", "start": 0, "sunlight_share": 0.2,
 		"blurb": "Catch more of the sun. Raises sunlight gathered per minute.",
+		"perks": [
+			{"id": "bird_targeting", "level": 7, "kind": "Minor perk", "name": "Bird Targeting",
+				"desc": "A branch snaps out of the leaves to pop a bird once a minute while you're in the Grove, and collects what it drops."},
+		],
 	},
 	"tap": {
 		"name": "Tapping", "start": 0, "sunlight_share": 0.2,
@@ -201,57 +205,63 @@ const CLEAVE_RADIUS := 70.0
 const SLOW_TIME := 2.0
 const BURN_TIME := 3.0
 const FREEZE_TIME := 1.0
+# Any hit, by troop or foe, has CRIT_CHANCE to be a critical hit for CRIT_MULT damage.
+const CRIT_CHANCE := 0.08
+const CRIT_MULT := 1.75
+# Knockback pushes are this much weaker on large foes and bosses.
+const KNOCKBACK_HEAVY := 0.4
 
 const BASE_TROOPS := ["soldier", "guard", "spearman", "archer"]
 const TROOP_ORDER := ["soldier", "guard", "archer", "spearman", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
+# Troops come out of the Barracks' root box. `sap_cost` is what a troop is
+# worth in sap, for balancing (see tools/sim_check.gd).
 const TROOPS := {
 	"soldier": {
-		"name": "Twig Soldier", "img": "troop_soldier", "element": "", "unlock_level": 1, "sap_cost": 30,
+		"rarity": "common", "name": "Twig Soldier", "img": "troop_soldier", "element": "", "unlock_level": 1, "sap_cost": 30,
 		"role": "Melee frontline", "preferred_row": "front",
 		"hp": 40, "dmg": 5, "reach": 1, "cooldown": 1.0, "speed": 40,
 	},
 	"guard": {
-		"name": "Twig Guard", "img": "troop_guard", "element": "", "unlock_level": 1, "sap_cost": 35,
+		"rarity": "common", "name": "Twig Guard", "img": "troop_guard", "element": "", "unlock_level": 1, "sap_cost": 35,
 		"role": "Shield wall, takes 30% less damage", "preferred_row": "front",
 		"hp": 46, "dmg": 3, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.3,
 	},
 	"spearman": {
-		"name": "Twig Spearman", "img": "troop_spearman", "element": "", "unlock_level": 2, "sap_cost": 45,
+		"rarity": "uncommon", "name": "Twig Spearman", "img": "troop_spearman", "element": "", "unlock_level": 2, "sap_cost": 45,
 		"role": "Bonus vs. large foes", "preferred_row": "middle",
 		"hp": 38, "dmg": 6, "reach": 2, "cooldown": 1.2, "speed": 38, "vs_large": 1.5,
 	},
 	"archer": {
-		"name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 1, "sap_cost": 60,
+		"rarity": "uncommon", "name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 1, "sap_cost": 60,
 		"role": "Ranged, fragile", "preferred_row": "back",
 		"hp": 18, "dmg": 6, "reach": 8, "cooldown": 1.4, "speed": 34,
 		"projectile": Color("#E8E2D0"), "target_lowest_hp": true,
 	},
-	# Elemental troops unlock once a land of their element is conquered,
-	# and cost some of that element's power to grow. The farther their land,
-	# the later they arrive and the more sap they cost.
+	# Elemental troops join the root box once a land of their element is
+	# conquered. The farther their land, the later they arrive and the rarer they are.
 	"vine_lasher": {
-		"name": "Vine Lasher", "img": "troop_vine_lasher", "element": "nature", "unlock_level": 1,
-		"sap_cost": 70, "power_cost": 6, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
+		"rarity": "rare", "name": "Vine Lasher", "img": "troop_vine_lasher", "element": "nature", "unlock_level": 1,
+		"sap_cost": 70, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
 		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.012,
 	},
 	"tide_caller": {
-		"name": "Tide Caller", "img": "troop_tide_caller", "element": "water", "unlock_level": 1,
-		"sap_cost": 90, "power_cost": 6, "role": "Ranged, hits slow enemies", "preferred_row": "back",
+		"rarity": "rare", "name": "Tide Caller", "img": "troop_tide_caller", "element": "water", "unlock_level": 1,
+		"sap_cost": 90, "role": "Ranged, hits slow enemies", "preferred_row": "back",
 		"hp": 20, "dmg": 4, "reach": 6, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "slow": true,
 	},
 	"ember_sprout": {
-		"name": "Ember Sprout", "img": "troop_ember_sprout", "element": "fire", "unlock_level": 1,
-		"sap_cost": 115, "power_cost": 6, "role": "Hard hitter, sets foes burning", "preferred_row": "front",
+		"rarity": "rare", "name": "Ember Sprout", "img": "troop_ember_sprout", "element": "fire", "unlock_level": 1,
+		"sap_cost": 115, "role": "Hard hitter, sets foes burning", "preferred_row": "front",
 		"hp": 28, "dmg": 8, "reach": 1, "cooldown": 1.0, "speed": 45, "burn": 0.3,
 	},
 	"frost_warden": {
-		"name": "Frost Warden", "img": "troop_frost_warden", "element": "ice", "unlock_level": 1,
-		"sap_cost": 145, "power_cost": 6, "role": "Armored tank, hits can freeze", "preferred_row": "front",
+		"rarity": "epic", "name": "Frost Warden", "img": "troop_frost_warden", "element": "ice", "unlock_level": 1,
+		"sap_cost": 145, "role": "Armored tank, hits can freeze", "preferred_row": "front",
 		"hp": 64, "dmg": 4, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.15, "freeze": 0.12,
 	},
 	"shade_twig": {
-		"name": "Shade Twig", "img": "troop_shade_twig", "element": "dark", "unlock_level": 1,
-		"sap_cost": 180, "power_cost": 6, "role": "Fast, heals from damage dealt", "preferred_row": "front",
+		"rarity": "epic", "name": "Shade Twig", "img": "troop_shade_twig", "element": "dark", "unlock_level": 1,
+		"sap_cost": 180, "role": "Fast, heals from damage dealt", "preferred_row": "front",
 		"hp": 34, "dmg": 6, "reach": 1, "cooldown": 1.0, "speed": 50, "lifesteal": 0.35,
 	},
 }
@@ -267,6 +277,163 @@ const INFUSION := {
 	"dark": {"hp_mult": 1.1, "dmg_mult": 1.1, "lifesteal": 0.3, "desc": "+10% HP and DMG, heals 30% of damage dealt"},
 }
 const ABILITY_KEYS := ["regen", "slow", "burn", "freeze", "armor", "lifesteal"]
+
+
+# --- Root box ---------------------------------------------------------------
+
+# Troops are summoned from the root box in the Barracks. Sap injected into the
+# box (from `min_sap`, needed to open it, up to `max_sap`) moves its odds along
+# the tier's `curve`: points of [sap, weights], straight lines between them.
+# A weight is keyed by a troop type, or by a rarity to share evenly among that
+# rarity's troops not named on their own. Elemental power injected (up to
+# BOX_MAX_POWER of one element) raises the chance of that element's troop in a
+# straight line from its usual odds up to BOX_FOCUS_MAX (95% at a full 10, in
+# every tier), shrinking the other troops' odds to make room.
+# Only unlocked troops can come out: a named troop that is still locked passes
+# its weight to the rest of its rarity, and a rarity with nothing unlocked
+# passes its weight down to the next rarity that has something.
+# Each prestige raises the weight of the better rarities a little (see
+# BOX_PRESTIGE_BONUS): at prestige 10, Rare troops weigh twice as much.
+# The box upgrades Root → Bark → Heartwood, and keeps its tier through prestige.
+#
+# Root Box odds by sap (soldier / guard / spearman / archer / rare / epic):
+#    30  55 / 25 /  8 / 10 /  2 / 0   Twig Soldiers most likely
+#    75  22 / 42 / 14 / 14 /  7 / 1   Twig Guards most likely
+#   150  10 / 18 / 17 / 37 / 15 / 3   Twig Archers most likely
+# Bark and Heartwood odds by rarity (common / uncommon / rare / epic):
+#   Bark       60: 50 / 35 / 13 /  2  →  300: 15 / 40 / 33 / 12
+#   Heartwood 120: 20 / 40 / 28 / 12  →  600:  0 / 25 / 45 / 30
+# Each tier doubles the sap range and pays off once elemental lands are conquered.
+const RARITY_ORDER := ["common", "uncommon", "rare", "epic"]
+const RARITY := {
+	"common": {"name": "Common", "color": Color("#D8CFB8")},
+	"uncommon": {"name": "Uncommon", "color": Color("#8FD16A")},
+	"rare": {"name": "Rare", "color": Color("#5BB4E8")},
+	"epic": {"name": "Epic", "color": Color("#C98AF2")},
+}
+const BOX_MAX_POWER := 10
+const BOX_FOCUS_MAX := 0.95
+## Added to each rarity's weight per prestige, as a fraction of it.
+const BOX_PRESTIGE_BONUS := {"common": 0.0, "uncommon": 0.04, "rare": 0.1, "epic": 0.15}
+const TWIG_BOXES := [
+	{"name": "Root Box", "img": "twig_box_1", "unlock_level": 1, "cost": {},
+		"min_sap": 30, "max_sap": 150, "sap_step": 15, "curve": [
+			[30, {"soldier": 55, "guard": 25, "spearman": 8, "archer": 10, "rare": 2}],
+			[75, {"soldier": 22, "guard": 42, "spearman": 14, "archer": 14, "rare": 7, "epic": 1}],
+			[150, {"soldier": 10, "guard": 18, "spearman": 17, "archer": 37, "rare": 15, "epic": 3}]]},
+	{"name": "Bark Box", "img": "twig_box_2", "unlock_level": 3, "cost": {"sunlight": 300, "sap": 250},
+		"min_sap": 60, "max_sap": 300, "sap_step": 30, "curve": [
+			[60, {"common": 50, "uncommon": 35, "rare": 13, "epic": 2}],
+			[300, {"common": 15, "uncommon": 40, "rare": 33, "epic": 12}]]},
+	{"name": "Heartwood Box", "img": "twig_box_3", "unlock_level": 6, "cost": {"sunlight": 2500, "sap": 1200},
+		"min_sap": 120, "max_sap": 600, "sap_step": 60, "curve": [
+			[120, {"common": 20, "uncommon": 40, "rare": 28, "epic": 12}],
+			[600, {"common": 0, "uncommon": 25, "rare": 45, "epic": 30}]]},
+]
+
+static func twig_box(tier: int) -> Dictionary:
+	return TWIG_BOXES[clampi(tier, 1, TWIG_BOXES.size()) - 1]
+
+# The tier's curve weights at `sap` (below the first point counts as the first).
+static func _box_weights(tier: int, sap: float) -> Dictionary:
+	var curve: Array = twig_box(tier)["curve"]
+	var a: Array = curve[0]
+	var b: Array = curve[0]
+	for pt in curve:
+		b = pt
+		if pt[0] >= sap:
+			break
+		a = pt
+	var t := 0.0 if b[0] == a[0] else clampf((sap - a[0]) / float(b[0] - a[0]), 0.0, 1.0)
+	var w := {}
+	for k in a[1].keys() + b[1].keys():
+		w[k] = lerpf(a[1].get(k, 0.0), b[1].get(k, 0.0), t)
+	return w
+
+## The odds of each troop type coming out of a box. `pool` lists the unlocked
+## types; `focus_type` (or "") is the troop the injected element favours.
+## `prestige` tilts the odds toward the better rarities.
+## Returns { types: { type: p }, rarity: { rarity: p }, focus: p }, where
+## `focus` is how far the injected energy has pulled the odds, 0..1.
+static func box_odds(tier: int, sap: float, focus_type: String, power: float, pool: Array, prestige := 0) -> Dictionary:
+	var w := _box_weights(tier, sap)
+	# Each rarity's total weight, and how it splits among its unlocked troops.
+	var split := {}  # rarity -> { type: weight }
+	var total_r := {}
+	for r in RARITY_ORDER:
+		var unlocked: Array = pool.filter(func(t): return TROOPS[t]["rarity"] == r)
+		var shared: float = w.get(r, 0.0)
+		var named := {}
+		var total: float = shared
+		for t in TROOP_ORDER:
+			if TROOPS[t]["rarity"] == r and w.has(t):
+				total += w[t]
+				if t in unlocked:
+					named[t] = w[t]
+				else:
+					shared += w[t]  # still locked: the rest of its rarity takes its weight
+		var rest: Array = unlocked.filter(func(t): return not named.has(t))
+		if rest.is_empty():
+			rest = named.keys()
+		var parts := named.duplicate()
+		var rest_w := 0.0
+		for t in rest:
+			rest_w += named.get(t, 0.0)
+		for t in rest:
+			# Shared weight goes evenly to unnamed troops, or in proportion when all are named.
+			parts[t] = parts.get(t, 0.0) + (shared * named[t] / rest_w if named.has(t) and rest_w > 0.0 else shared / rest.size())
+		split[r] = parts
+		total_r[r] = total
+	# A rarity with nothing unlocked passes its weight to the next one down (or up).
+	for i in range(RARITY_ORDER.size() - 1, -1, -1):
+		var r: String = RARITY_ORDER[i]
+		if split[r].is_empty() and total_r[r] > 0.0:
+			var to := ""
+			for j in range(i - 1, -1, -1):
+				if not split[RARITY_ORDER[j]].is_empty():
+					to = RARITY_ORDER[j]
+					break
+			if to == "":
+				for j in range(i + 1, RARITY_ORDER.size()):
+					if not split[RARITY_ORDER[j]].is_empty():
+						to = RARITY_ORDER[j]
+						break
+			if to != "":
+				var into: Dictionary = split[to]
+				var into_w := 0.0
+				for t in into:
+					into_w += into[t]
+				for t in into:
+					into[t] += total_r[r] * (into[t] / into_w if into_w > 0.0 else 1.0 / into.size())
+			total_r[r] = 0.0
+	var types := {}
+	var sum := 0.0
+	for r in RARITY_ORDER:
+		for t in split[r]:
+			types[t] = split[r][t] * (1.0 + BOX_PRESTIGE_BONUS[r] * prestige)
+			sum += types[t]
+	for t in types:
+		types[t] /= sum
+	var focus := clampf(power / BOX_MAX_POWER, 0.0, 1.0) if focus_type in pool else 0.0
+	if focus > 0.0 and types.get(focus_type, 0.0) < 1.0:
+		var base: float = types.get(focus_type, 0.0)
+		var want := maxf(base, lerpf(base, BOX_FOCUS_MAX, focus))
+		for t in types:
+			types[t] = want if t == focus_type else types[t] * (1.0 - want) / (1.0 - base)
+		types[focus_type] = want
+	var rarity := {}
+	for r in RARITY_ORDER:
+		rarity[r] = 0.0
+	for t in types:
+		rarity[TROOPS[t]["rarity"]] += types[t]
+	return {"types": types, "rarity": rarity, "focus": focus}
+
+## The troop of an element, or "" if there is none.
+static func element_troop(element: String) -> String:
+	for t in TROOP_ORDER:
+		if TROOPS[t]["element"] == element:
+			return t
+	return ""
 
 
 ## Effective battle stats for a troop instance ({ id, type, element }).
@@ -602,15 +769,25 @@ const EXPEDITION_KILL_POWER := 1  # elemental power looted per enemy defeated, o
 #   effect  "dmg": troops deal `amount` more damage
 #           "hp":  troops have `amount` more max HP (current HP scales with it)
 #           "reach": troops strike from `amount` reach farther
+#           "crit": troops have `amount` more chance to land a critical hit
+#           "knockback": troops' hits push foes `amount` pixels away
 const POTION_WAVES := 5
-const ITEM_ORDER := ["thorn_draught", "bark_brew", "reach_tonic"]
+# A world-map battle (a land or a dungeon) has SHROOM_CHANCE of starting with one
+# mushroom in a random potion's colours growing at the edge of the field.
+# Tapping it picks it, for one of that potion.
+const SHROOM_CHANCE := 0.5
+const ITEM_ORDER := ["thorn_draught", "bark_brew", "reach_tonic", "keen_elixir", "gale_brew"]
 const ITEMS := {
-	"thorn_draught": {"name": "Thorn Draught", "img": "item_thorn_draught", "effect": "dmg", "amount": 0.15,
+	"thorn_draught": {"name": "Thorn Draught", "img": "item_thorn_draught", "shroom": "shroom_thorn_draught", "effect": "dmg", "amount": 0.15,
 		"desc": "Troops deal +15% damage for 5 waves."},
-	"bark_brew": {"name": "Bark Brew", "img": "item_bark_brew", "effect": "hp", "amount": 0.2,
+	"bark_brew": {"name": "Bark Brew", "img": "item_bark_brew", "shroom": "shroom_bark_brew", "effect": "hp", "amount": 0.2,
 		"desc": "Troops get +20% max HP for 5 waves."},
-	"reach_tonic": {"name": "Longreach Tonic", "img": "item_reach_tonic", "effect": "reach", "amount": 1,
+	"reach_tonic": {"name": "Longreach Tonic", "img": "item_reach_tonic", "shroom": "shroom_reach_tonic", "effect": "reach", "amount": 1,
 		"desc": "Troops strike from +1 reach for 5 waves."},
+	"keen_elixir": {"name": "Keen Elixir", "img": "item_keen_elixir", "shroom": "shroom_keen_elixir", "effect": "crit", "amount": 0.15,
+		"desc": "Troops get +15% critical hit chance for 5 waves."},
+	"gale_brew": {"name": "Gale Brew", "img": "item_gale_brew", "shroom": "shroom_gale_brew", "effect": "knockback", "amount": 40.0,
+		"desc": "Troops' hits knock foes back for 5 waves."},
 }
 
 # Birds that visit the Grove can be tapped. A tapped bird bursts into feathers
@@ -618,6 +795,8 @@ const ITEMS := {
 # tree of its level makes, or BIRD_POWER of a random element whose land has been
 # conquered (BIRD_POWER_CHANCE), or rarely a random potion (BIRD_POTION_CHANCE).
 const BIRD_MINUTES := 5.0
+## Bird Targeting (a Branches perk) pops a bird this often while the Grove is open.
+const BIRD_TARGET_SECONDS := 60.0
 const BIRD_POWER := 1
 const BIRD_POWER_CHANCE := 0.35
 const BIRD_POTION_CHANCE := 0.04
@@ -777,7 +956,7 @@ const DUNGEON_EARLY_SEED_CHANCE := 0.15  # before the first prestige, a cleared 
 const DUNGEON_RESPAWN_MINUTES := 30.0
 const DUNGEON_WAVES := 4  # the last one is a boss wave
 const DUNGEON_LEVEL_SPREAD := 1  # a new dungeon is up to this many levels above or below the tree
-const DUNGEON_SCALE_PER_REACH := 0.12  # foe strength per step of reach past (or short of) their home land
+const DUNGEON_SCALE_PER_REACH := 0.18  # foe strength per step of reach past (or short of) their home land
 const DUNGEON_GAP := 80.0  # map distance DUNGEON_SPOTS keep from the lands and the grove
 ## Each element's dungeon names, taken in turn with the tree's prestige (see name_set).
 const DUNGEON_NAMES := {
@@ -842,10 +1021,13 @@ static func roll_dungeon(element: String, level: int) -> Dictionary:
 			foes.append(key)
 	if foes.is_empty():
 		foes.append(boss)
+	# Each level past 1 adds a foe, going to the regular waves in turn from the last.
+	var regular := DUNGEON_WAVES - 1
 	var waves := []
-	for i in DUNGEON_WAVES - 1:
+	for i in regular:
+		var extra := (distance - 1 + i) / regular
 		var w := []
-		for j in mini(9, 3 + i + distance / 3):
+		for j in mini(9, 3 + i + extra):
 			w.append(foes.pick_random())
 		waves.append(w)
 	var last := [boss]
