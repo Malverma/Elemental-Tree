@@ -10,7 +10,8 @@ const GLOW := Color("#ffe36b")
 const GLOW_HI := Color("#fff8d0")
 const SOCKET := Color("#1a0f08")
 
-const TROOPS := ["soldier", "guard", "spearman", "archer", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
+const TROOPS := ["soldier", "guard", "spearman", "archer", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig",
+	"scout", "acorn_slinger", "drummer", "sap_mender", "bramble_knight", "elder_oak"]
 const ENEMIES := ["thorn_beetle", "burrow_rabbit", "spring_frog", "ripple_sprite", "cinder_lizard", "ash_moth", "frost_wolf", "icicle_bat",
 	"cave_bat", "shadow_slime", "thornback_boar", "pollen_wisp", "snapjaw_crab", "bubble_eel"]
 const BOSSES := ["bramble_hare", "mossback_turtle", "magma_salamander", "rime_elk", "hollow_mole_king", "blight_treant", "lagoon_kraken",
@@ -51,6 +52,7 @@ var R := {
 	"mole": [Color("#14101a"), Color("#2c2436"), Color("#463a52"), Color("#685a78")],
 	"gold": [Color("#6a4a08"), Color("#b88a14"), Color("#f0c43a"), Color("#fff0a0")],
 	"pink": [Color("#7a2a4a"), Color("#c0507a"), Color("#f08cb0"), Color("#ffd0e0")],
+	"thistle": [Color("#3a1a4a"), Color("#7a3a96"), Color("#b066d0"), Color("#e6b0ff")],
 	"kraken": [Color("#2a1440"), Color("#4a2a78"), Color("#6e48b0"), Color("#a888e0")],
 }
 
@@ -353,6 +355,129 @@ func troop(name: String):
 			path([18, 16, 22, 18, 26, 17], 1.0, R["shade"], true)
 			Ln(26, 17, 30, 14, 0.6, R["shade"]); Ln(26, 17, 30, 18, 0.6, R["shade"]); Ln(26, 17, 29, 21, 0.6, R["shade"])
 			D(5, 12, R["dark"][3]); D(25, 9, R["dark"][2]); D(8, 26, R["dark"][2])
+		"scout":
+			# A lean twig runner with a thistle-bloom head, darting in with a thorn knife.
+			var th = R["thistle"]
+			Ln(13, 23, 9, 28, 1.2, b); Ln(17, 23, 21, 28, 1.2, b)
+			Dr(7, 29, 3, 1, b[1]); Dr(21, 29, 3, 1, b[1])
+			Ln(21, 28, 21, 29, 1.0, b)
+			path([11, 16, 7, 15, 3, 17], 0.8, lf)
+			Ln(12, 17, 8, 21, 1.0, b)
+			P([11, 14, 18, 14, 19, 24, 11, 24], b)
+			for y in range(16, 23, 3): D(13, y, b[1])
+			P([9.5, 12, 10.5, 5, 12.5, 9, 14, 3, 15.5, 8, 17, 4, 18, 9, 20.5, 6, 20, 12], th)
+			D(14, 5, th[3]); D(17, 6, th[3]); D(11, 7, th[3])
+			E(14.8, 12.5, 5.5, 2, lf)
+			D(12, 12, lf[3]); D(17, 12, lf[0])
+			eye(12, 16); eye(16, 16)
+			Dr(14, 20, 2, 1, SOCKET)
+			Ln(18, 18, 22, 17, 1.0, b, true)
+			P([22, 15.5, 29.5, 16.5, 22, 18.5], R["ash"], true)
+			D(24, 16, R["ash"][3]); D(26, 16, R["ash"][3])
+		"acorn_slinger":
+			# A stump in an acorn-cap hat, whirling a sling with an acorn in it.
+			var sh = R["shell"]
+			Ln(13, 24, 12, 29, 1.5, b); Ln(18, 24, 19, 29, 1.5, b)
+			Dr(10, 29, 3, 1, b[1]); Dr(19, 29, 3, 1, b[1])
+			P([10, 13, 20, 13, 21, 25, 9, 25], b)
+			for y in range(16, 24, 2): D(11, y, b[1])
+			E(15, 11.5, 7, 3.2, sh)
+			for x in range(9, 21, 2): D(x, 11, sh[0]); D(x + 1, 10, sh[3])
+			Dr(8, 13, 15, 1, sh[0])
+			Ln(15, 8, 16, 5, 0.6, w)
+			eye(12, 16); eye(16, 16)
+			Dr(13, 20, 3, 1, SOCKET)
+			E(9, 22, 2.6, 2.6, R["fur"], true)
+			D(8, 21, R["fur"][3]); E(8.5, 19.5, 1.2, 0.8, sh)
+			Ln(19, 17, 23, 13, 1.1, b, true)
+			path([23, 13, 24, 9, 27, 6], 0.4, R["cream"])
+			E(28, 8.5, 2.1, 2.6, R["fur"], true)
+			E(28, 6.2, 2.4, 1.2, sh)
+			D(28, 5, w[1]); D(29, 8, R["fur"][3]); D(28, 11, R["fur"][0])
+			D(25, 3, R["cream"][3]); D(31, 9, R["cream"][2]); D(22, 5, R["cream"][2])
+		"drummer":
+			# A leafy-topped stump beating a hollow-log drum slung at its belly.
+			Ln(13, 25, 12, 29, 1.6, b); Ln(18, 25, 19, 29, 1.6, b)
+			Dr(10, 29, 3, 1, b[1]); Dr(19, 29, 3, 1, b[1])
+			P([10, 11, 21, 11, 22, 24, 9, 24], b)
+			E(15.5, 11, 6, 2, w)
+			D(14, 11, w[1]); D(17, 11, w[1])
+			Ln(15, 10, 13, 6, 0.6, lf); E(12, 6, 2, 1.3, lf); E(17.5, 7.5, 2.2, 1.3, lf)
+			eye(12, 14); eye(16, 14)
+			Dr(14, 17, 2, 2, SOCKET)
+			P([12, 21, 25, 21, 24, 28, 13, 28], R["shell"], true)
+			for x in [15, 18, 21]:
+				for y in range(23, 28): D(x, y, R["shell"][0])
+			path([13, 24, 15, 27, 18, 24, 21, 27, 24, 24], 0.4, R["gold"])
+			E(18.5, 21, 6.5, 1.5, R["cream"], true)
+			Ln(10, 16, 7, 12, 1.0, b, true)
+			Ln(7, 12, 12, 6, 0.6, w); E(12.5, 5.5, 1.2, 1.2, R["fur"])
+			Ln(21, 15, 25, 13, 1.0, b, true)
+			Ln(25, 13, 22, 19.5, 0.6, w); E(21.5, 20, 1.2, 1.2, R["fur"])
+			D(27, 15, R["gold"][3]); D(5, 9, R["gold"][3]); D(28, 11, R["gold"][2])
+		"sap_mender":
+			# A hooded sapling in a moss robe, raising a staff tipped with glowing sap.
+			var mo = R["moss"]
+			var am = R["gold"]
+			P([10, 14, 20, 14, 23, 29, 7, 29], mo)
+			for y in range(18, 29, 2): D(11, y, mo[0]); D(18, y + 1, mo[0])
+			Ln(9.5, 21, 21, 21, 0.6, w)
+			E(15, 11.5, 6, 5.5, mo)
+			E(16.8, 12.5, 3.4, 3.2, b)
+			eye(15, 12); eye(18, 12)
+			D(17, 15, SOCKET)
+			E(12.5, 6.5, 2.2, 1.3, lf); E(17, 6.2, 1.8, 1.2, lf); D(13, 6, lf[3])
+			Ln(25, 29, 25, 8, 0.8, w, true)
+			Ln(19, 18, 24, 18, 1.2, mo, true)
+			E(24.5, 18, 1.5, 1.5, b, true)
+			P([25, 1, 28, 5.5, 27, 8.5, 23, 8.5, 22, 5.5], am, true)
+			D(24, 4, am[3]); D(25, 3, Color.WHITE)
+			for f in [[29, 2], [20, 3], [29, 10], [5, 12], [4, 20], [27, 22]]:
+				D(f[0], f[1], R["leaf"][3])
+			D(5, 11, R["leaf"][2]); D(5, 13, R["leaf"][2]); D(4, 12, R["leaf"][2]); D(6, 12, R["leaf"][2])
+		"bramble_knight":
+			# A bark knight in a stone helm, wrapped in thorny brambles, swinging a thorn mace.
+			var pn = R["pine"]
+			var bo = R["bone"]
+			Ln(12, 24, 11, 29, 1.8, b); Ln(18, 24, 19, 29, 1.8, b)
+			Dr(9, 29, 4, 1, b[1]); Dr(18, 29, 4, 1, b[1])
+			E(7.5, 19, 4.5, 5.5, pn, true)
+			for f in [[7, 13], [3, 17], [3, 21], [7, 25], [11, 15]]: D(f[0], f[1], bo[2])
+			D(7, 19, R["fire"][1]); D(6, 18, R["fire"][2])
+			P([9, 11, 21, 11, 22, 25, 8, 25], b, true)
+			for y in range(15, 24, 3): D(20, y, b[1])
+			path([9, 16, 13, 19, 17, 16, 21, 19], 0.7, pn)
+			for f in [[11, 16], [15, 18], [19, 16], [13, 21]]: D(f[0], f[1], bo[2])
+			D(13, 19, R["fire"][1]); D(18, 18, R["fire"][1])
+			P([9, 3, 19, 3, 21, 12, 8, 12], R["ash"])
+			Dr(12, 7, 9, 2, SOCKET)
+			D(14, 7, GLOW); D(18, 7, GLOW)
+			Ln(14, 3, 12, 0.5, 0.6, pn); Ln(12, 1, 9, 1, 0.5, pn); D(11, 0, bo[2])
+			Ln(21, 17, 24, 18, 1.3, b, true)
+			Ln(24, 22, 27, 11, 1.0, w, true)
+			E(27.5, 8.5, 2.8, 2.8, pn, true)
+			for f in [[27, 4], [31, 8], [24, 7], [30, 5], [30, 12], [25, 11]]: D(f[0], f[1], bo[2])
+		"elder_oak":
+			# An ancient oak treant under a broad crown, its branch arms gnarled into a club.
+			var sh = R["shell"]
+			taper([11, 24, 8, 28, 4, 30], 2.4, 0.6, b); taper([20, 24, 23, 28, 28, 30], 2.4, 0.6, b)
+			Ln(15.5, 25, 15.5, 30, 1.8, b)
+			taper([9, 16, 5, 19, 3, 24], 1.9, 0.7, b)
+			E(3, 25, 1.8, 1.3, lf)
+			P([9, 9, 22, 9, 24, 27, 7, 27], b)
+			for g in [[10, 13], [22, 14], [9, 20], [22, 21]]:
+				for y in range(g[1], g[1] + 5, 2): D(g[0], y, b[0])
+			E(15.5, 5.5, 11, 4.5, lf); E(6, 8, 4.5, 3.2, lf); E(25, 7.5, 5, 3.2, lf); E(15, 2.5, 6.5, 2.3, lf)
+			for f in [[13, 2], [19, 3], [9, 5], [24, 5], [16, 5], [5, 7]]: D(f[0], f[1], lf[3])
+			E(8.5, 10.5, 1.2, 1.5, sh); E(21, 10.5, 1.2, 1.5, sh)
+			Ln(10, 13.5, 20, 13.5, 0.7, R["bark"])
+			eye(11, 15); eye(17, 15)
+			Dr(12, 20, 6, 1, SOCKET)
+			E(15, 23.5, 4.5, 2, R["moss"])
+			D(13, 24, R["moss"][3]); D(17, 23, R["moss"][3])
+			taper([22, 17, 26, 16, 29, 11], 2.2, 1.2, b, true)
+			E(29, 8.5, 2.6, 2.2, lf, true)
+			D(29, 7, lf[3]); D(30, 13, b[0])
 	outline()
 
 # --- enemies (face left) -----------------------------------------------------
@@ -932,6 +1057,14 @@ func make(kind: String, name: String) -> Image:
 # params.save_dir: write every sprite as a PNG there. Returns a contact sheet.
 func run(api, image, project, params):
 	var dir: String = params.get("save_dir", "")
+	if params.get("troops_only", false):
+		var tsheet = Image.create(TROOPS.size() * 36, 36, false, Image.FORMAT_RGBA8)
+		tsheet.fill(Color("#3b3326"))
+		for j in TROOPS.size():
+			var im = make("troop", TROOPS[j])
+			if dir != "": im.save_png(dir + "troop_%s.png" % TROOPS[j])
+			tsheet.blend_rect(im, Rect2i(0, 0, 32, 32), Vector2i(j * 36 + 2, 2))
+		return tsheet
 	var sheet = Image.create(maxi(8, BOSSES.size()) * 50, 5 * 50, false, Image.FORMAT_RGBA8)
 	var i = 0
 	var troop_imgs = {}

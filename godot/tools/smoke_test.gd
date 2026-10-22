@@ -138,7 +138,7 @@ func _run() -> void:
 	game.channel()
 	game.state["levels"].erase("sunny_meadow")
 	_check(gate_res["ok"] and game.state["tree"]["level"] == 2 and game.state["tree"]["roots"] == 1, "upgrades and level up once the land is conquered")
-	_check(GameData.xp_to_next(1) == 150 and GameData.xp_to_next(9) == 72000, "level 1 → 2 is 15 min of sunlight, 9 → 10 is 24 h")
+	_check(GameData.xp_to_next(1) == 300 and GameData.xp_to_next(2) == 1000 and GameData.xp_to_next(9) == 72000, "level 1 → 2 is 30 min, 2 → 3 is 1000 of sunlight, 9 → 10 is 24 h")
 	_check(is_equal_approx(GameData.growth_minutes(12), GameData.STORAGE_CAP_MINUTES), "levels past 10 stay at 24 h of sunlight")
 	_check(not GameData.part_cost("roots", 2).has("sap") and not GameData.part_cost("trunk", 2).has("sap"), "part upgrades to level 3 cost no sap")
 	_check(GameData.part_cost("roots", 3).has("sap") and GameData.part_cost("trunk", 3).has("sap"), "part upgrades past level 3 cost sap")
@@ -294,15 +294,18 @@ func _run() -> void:
 	for type in bare["types"]:
 		total += bare["types"][type]
 	_check(is_equal_approx(total, 1.0), "root box odds add up to 1")
-	var leads := []
+	var commons := []
+	var rares := []
 	for sap in [30, 75, 150]:
-		var by_type: Dictionary = GameData.box_odds(1, sap, "", 0, GameData.BASE_TROOPS + ["vine_lasher"])["types"]
-		var top := ""
-		for type in by_type:
-			if top == "" or by_type[type] > by_type[top]:
-				top = type
-		leads.append(top)
-	_check(leads == ["soldier", "guard", "archer"], "a Root Box favours soldiers at 30 sap, guards at 75, archers at 150 (%s)" % [leads])
+		var by_rarity: Dictionary = GameData.box_odds(1, sap, "", 0, GameData.BASE_TROOPS + ["vine_lasher"])["rarity"]
+		commons.append(by_rarity["common"])
+		rares.append(by_rarity["rare"])
+	_check(commons[0] > commons[1] and commons[1] > commons[2] and rares[0] < rares[1] and rares[1] < rares[2],
+		"more sap in a Root Box means fewer commons and more rares (%s / %s)" % [commons, rares])
+	var fresh_odds: Dictionary = GameData.box_odds(1, 30, "", 0, GameData.BASE_TROOPS)["types"]
+	var repeat_odds: Dictionary = GameData.box_odds(1, 30, "", 0, GameData.BASE_TROOPS, 0, {"soldier": 4})["types"]
+	_check(repeat_odds["soldier"] < fresh_odds["soldier"] * 0.5 and repeat_odds["guard"] > fresh_odds["guard"],
+		"the box turns away from troops the roster already has plenty of")
 	# Bird Targeting: Branches 7 unlocks a snare branch that pops a bird each minute in the Grove.
 	var branches0: int = game.state["tree"]["branches"]
 	game.state["tree"]["branches"] = 6

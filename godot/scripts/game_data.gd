@@ -66,14 +66,18 @@ static func leftover_ehp(squad_ehp: float, squad_dps: float, pack_hp: float, pac
 # --- Economy -----------------------------------------------------------------
 
 # Sunlight (growth) to reach the next tree level, sized in minutes of collecting:
-# 15 min for 1 → 2, rising ×1.77 a level to 24 h for 9 → 10, then 24 h a level.
+# 30 min (300) for 1 → 2, about 67 min (1000) for 2 → 3, then rising ×1.55 a
+# level to 24 h for 9 → 10, then 24 h a level.
 # Timed at the sunlight rate with branches one level behind the tree.
-const GROWTH_FIRST_MINUTES := 15.0
+const GROWTH_FIRST_MINUTES := 30.0
+const GROWTH_SECOND_MINUTES := 1000.0 / 15.0
 const GROWTH_DAY_LEVEL := 9
 
 static func growth_minutes(level: int) -> float:
-	var ratio := pow(STORAGE_CAP_MINUTES / GROWTH_FIRST_MINUTES, 1.0 / (GROWTH_DAY_LEVEL - 1))
-	return GROWTH_FIRST_MINUTES * pow(ratio, mini(level, GROWTH_DAY_LEVEL) - 1)
+	if level <= 1:
+		return GROWTH_FIRST_MINUTES
+	var ratio := pow(STORAGE_CAP_MINUTES / GROWTH_SECOND_MINUTES, 1.0 / (GROWTH_DAY_LEVEL - 2))
+	return GROWTH_SECOND_MINUTES * pow(ratio, mini(level, GROWTH_DAY_LEVEL) - 2)
 
 static func xp_to_next(level: int) -> int:
 	return roundi(growth_minutes(level) * sunlight_per_min(level - 1) / 10.0) * 10
@@ -193,8 +197,21 @@ static func part_effect(part: String, lvl: int) -> String:
 #   freeze    chance per hit to freeze the target (no moving or attacking) for FREEZE_TIME
 #   armor     takes this fraction less damage
 #   lifesteal heals this fraction of the damage it deals
+#   cleave    each hit also deals this fraction to foes within CLEAVE_RADIUS of the target
+#   thorns    a melee attacker that hits it takes this fraction of the hit back
+#   heal      (troops) instead of attacking, mends the most hurt troop in reach by
+#             this fraction of its max HP (it only attacks when no one is hurt)
+#   vs_large  damage multiplier against large foes (bosses)
+#   projectile  ranged: hits travel as a shot of this colour; `shot` names its
+#             look and flight in the battle view (see BattleCanvas.SHOTS)
+#   hunt_ranged (troops) goes for foes that shoot from range first
 #   dive      (foes) rushes the farthest-back row instead of the nearest troop
-#   cleave    (foes) each hit also deals this fraction to troops within CLEAVE_RADIUS of the target
+# Auras help the troops on the stumps right beside it (same row or lane, one
+# step away), however strong those troops are, so they stay useful as the
+# squad grows; the same aura from two troops adds up:
+#   rally     neighbours deal this fraction more damage
+#   ward      neighbours take this fraction less damage
+#   haste     neighbours attack this fraction faster
 # Formation rules: troops hold their spot, chasing foes at most HOLD_RADIUS away
 # from it, so rows and lanes matter. Melee troops (reach 1–2) taunt: a non-boss
 # foe they hit turns on them for TAUNT_TIME, so a front line screens the rows behind.
@@ -205,64 +222,101 @@ const CLEAVE_RADIUS := 70.0
 const SLOW_TIME := 2.0
 const BURN_TIME := 3.0
 const FREEZE_TIME := 1.0
+## Stumps closer than this are neighbours for auras (lanes are 105 px apart, rows 90).
+const AURA_RADIUS := 110.0
+const AURA_KEYS := ["rally", "ward", "haste"]
 # Any hit, by troop or foe, has CRIT_CHANCE to be a critical hit for CRIT_MULT damage.
 const CRIT_CHANCE := 0.08
 const CRIT_MULT := 1.75
 # Knockback pushes are this much weaker on large foes and bosses.
 const KNOCKBACK_HEAVY := 0.4
 
-const BASE_TROOPS := ["soldier", "guard", "spearman", "archer"]
-const TROOP_ORDER := ["soldier", "guard", "archer", "spearman", "vine_lasher", "tide_caller", "ember_sprout", "frost_warden", "shade_twig"]
+## Troops with no element of their own, which can be infused with one.
+const BASE_TROOPS := ["soldier", "guard", "scout", "spearman", "archer", "acorn_slinger", "drummer", "sap_mender", "bramble_knight", "elder_oak"]
+const TROOP_ORDER := ["soldier", "guard", "scout", "archer", "spearman", "acorn_slinger", "drummer",
+	"vine_lasher", "tide_caller", "ember_sprout", "sap_mender", "bramble_knight", "frost_warden", "shade_twig", "elder_oak"]
 # Troops come out of the Barracks' root box. `sap_cost` is what a troop is
-# worth in sap, for balancing (see tools/sim_check.gd).
+# worth in sap, for balancing (see tools/sim_check.gd). Each rarity is a clear
+# step up in raw power (P = sqrt(DPS × EHP), about 14 / 17 / 22 / 30), while the
+# commons carry auras that grow with the squad around them.
 const TROOPS := {
 	"soldier": {
 		"rarity": "common", "name": "Twig Soldier", "img": "troop_soldier", "element": "", "unlock_level": 1, "sap_cost": 30,
-		"role": "Melee frontline", "preferred_row": "front",
-		"hp": 40, "dmg": 5, "reach": 1, "cooldown": 1.0, "speed": 40,
+		"role": "Frontline. Neighbours deal 10% more damage", "preferred_row": "front",
+		"hp": 44, "dmg": 5, "reach": 1, "cooldown": 1.0, "speed": 40, "rally": 0.1,
 	},
 	"guard": {
 		"rarity": "common", "name": "Twig Guard", "img": "troop_guard", "element": "", "unlock_level": 1, "sap_cost": 35,
-		"role": "Shield wall, takes 30% less damage", "preferred_row": "front",
-		"hp": 46, "dmg": 3, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.3,
+		"role": "Shield wall: takes 30% less damage, neighbours 10% less", "preferred_row": "front",
+		"hp": 50, "dmg": 3, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.3, "ward": 0.1,
+	},
+	"scout": {
+		"rarity": "common", "name": "Thistle Scout", "img": "troop_scout", "element": "", "unlock_level": 2, "sap_cost": 30,
+		"role": "Fast, hunts down foes that shoot from range", "preferred_row": "front",
+		"hp": 30, "dmg": 4, "reach": 1, "cooldown": 0.75, "speed": 64, "hunt_ranged": true,
 	},
 	"spearman": {
-		"rarity": "uncommon", "name": "Twig Spearman", "img": "troop_spearman", "element": "", "unlock_level": 2, "sap_cost": 45,
-		"role": "Bonus vs. large foes", "preferred_row": "middle",
-		"hp": 38, "dmg": 6, "reach": 2, "cooldown": 1.2, "speed": 38, "vs_large": 1.5,
+		"rarity": "uncommon", "name": "Twig Spearman", "img": "troop_spearman", "element": "", "unlock_level": 1, "sap_cost": 45,
+		"role": "Reach 2, +75% damage to bosses and large foes", "preferred_row": "middle",
+		"hp": 42, "dmg": 6, "reach": 2, "cooldown": 1.2, "speed": 38, "vs_large": 1.75,
 	},
 	"archer": {
-		"rarity": "uncommon", "name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 1, "sap_cost": 60,
-		"role": "Ranged, fragile", "preferred_row": "back",
-		"hp": 18, "dmg": 6, "reach": 8, "cooldown": 1.4, "speed": 34,
-		"projectile": Color("#E8E2D0"), "target_lowest_hp": true,
+		"rarity": "uncommon", "name": "Twig Archer", "img": "troop_archer", "element": "", "unlock_level": 1, "sap_cost": 50,
+		"role": "Long range, picks off the weakest foe", "preferred_row": "back",
+		"hp": 22, "dmg": 6.5, "reach": 8, "cooldown": 1.4, "speed": 34,
+		"projectile": Color("#E8E2D0"), "shot": "arrow", "target_lowest_hp": true,
+	},
+	"acorn_slinger": {
+		"rarity": "uncommon", "name": "Acorn Slinger", "img": "troop_acorn_slinger", "element": "", "unlock_level": 2, "sap_cost": 55,
+		"role": "Lobs acorns that burst on nearby foes", "preferred_row": "back",
+		"hp": 26, "dmg": 5, "reach": 6, "cooldown": 1.7, "speed": 34, "cleave": 0.6, "projectile": Color("#A87444"), "shot": "acorn",
+	},
+	"drummer": {
+		"rarity": "uncommon", "name": "Twig Drummer", "img": "troop_drummer", "element": "", "unlock_level": 2, "sap_cost": 50,
+		"role": "Neighbours attack 15% faster", "preferred_row": "middle",
+		"hp": 40, "dmg": 3, "reach": 2, "cooldown": 1.3, "speed": 36, "haste": 0.15,
 	},
 	# Elemental troops join the root box once a land of their element is
 	# conquered. The farther their land, the later they arrive and the rarer they are.
 	"vine_lasher": {
 		"rarity": "rare", "name": "Vine Lasher", "img": "troop_vine_lasher", "element": "nature", "unlock_level": 1,
-		"sap_cost": 70, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
-		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.012,
+		"sap_cost": 75, "role": "Whips from reach 2, heals over time", "preferred_row": "middle",
+		"hp": 56, "dmg": 6.5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.015,
 	},
 	"tide_caller": {
 		"rarity": "rare", "name": "Tide Caller", "img": "troop_tide_caller", "element": "water", "unlock_level": 1,
-		"sap_cost": 90, "role": "Ranged, hits slow enemies", "preferred_row": "back",
-		"hp": 20, "dmg": 4, "reach": 6, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "slow": true,
+		"sap_cost": 90, "role": "Ranged, hits splash and slow enemies", "preferred_row": "back",
+		"hp": 30, "dmg": 6, "reach": 6, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "shot": "tide", "slow": true, "cleave": 0.35,
 	},
 	"ember_sprout": {
 		"rarity": "rare", "name": "Ember Sprout", "img": "troop_ember_sprout", "element": "fire", "unlock_level": 1,
 		"sap_cost": 115, "role": "Hard hitter, sets foes burning", "preferred_row": "front",
-		"hp": 28, "dmg": 8, "reach": 1, "cooldown": 1.0, "speed": 45, "burn": 0.3,
+		"hp": 38, "dmg": 9.5, "reach": 1, "cooldown": 1.0, "speed": 45, "burn": 0.3,
+	},
+	"sap_mender": {
+		"rarity": "rare", "name": "Sap Mender", "img": "troop_sap_mender", "element": "", "unlock_level": 2, "sap_cost": 90,
+		"role": "Heals the most hurt troop in reach", "preferred_row": "back",
+		"hp": 34, "dmg": 3, "reach": 6, "cooldown": 1.9, "speed": 34, "heal": 0.07, "projectile": Color("#FFD447"), "shot": "sap",
+	},
+	"bramble_knight": {
+		"rarity": "rare", "name": "Bramble Knight", "img": "troop_bramble_knight", "element": "", "unlock_level": 3, "sap_cost": 100,
+		"role": "Armored, thorns hurt foes that strike it", "preferred_row": "front",
+		"hp": 64, "dmg": 5.5, "reach": 1, "cooldown": 1.2, "speed": 32, "armor": 0.2, "thorns": 0.3,
 	},
 	"frost_warden": {
 		"rarity": "epic", "name": "Frost Warden", "img": "troop_frost_warden", "element": "ice", "unlock_level": 1,
-		"sap_cost": 145, "role": "Armored tank, hits can freeze", "preferred_row": "front",
-		"hp": 64, "dmg": 4, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.15, "freeze": 0.12,
+		"sap_cost": 145, "role": "Armored tank, hits can freeze, shields neighbours", "preferred_row": "front",
+		"hp": 92, "dmg": 6, "reach": 1, "cooldown": 1.3, "speed": 32, "armor": 0.2, "freeze": 0.15, "ward": 0.1,
 	},
 	"shade_twig": {
 		"rarity": "epic", "name": "Shade Twig", "img": "troop_shade_twig", "element": "dark", "unlock_level": 1,
 		"sap_cost": 180, "role": "Fast, heals from damage dealt", "preferred_row": "front",
-		"hp": 34, "dmg": 6, "reach": 1, "cooldown": 1.0, "speed": 50, "lifesteal": 0.35,
+		"hp": 52, "dmg": 9, "reach": 1, "cooldown": 0.9, "speed": 52, "lifesteal": 0.4,
+	},
+	"elder_oak": {
+		"rarity": "epic", "name": "Elder Oak", "img": "troop_elder_oak", "element": "", "unlock_level": 4, "sap_cost": 170,
+		"role": "Huge and slow, sweeping blows hit every foe nearby", "preferred_row": "front",
+		"hp": 110, "dmg": 9, "reach": 2, "cooldown": 1.7, "speed": 26, "armor": 0.1, "cleave": 0.4,
 	},
 }
 
@@ -294,15 +348,15 @@ const ABILITY_KEYS := ["regen", "slow", "burn", "freeze", "armor", "lifesteal"]
 # passes its weight down to the next rarity that has something.
 # Each prestige raises the weight of the better rarities a little (see
 # BOX_PRESTIGE_BONUS): at prestige 10, Rare troops weigh twice as much.
+# The box favours troops the roster is short of: each one of a type already
+# in the roster scales that type's weight by BOX_REPEAT (down to BOX_REPEAT_MIN),
+# so a box rarely hands out the same troop again and again.
 # The box upgrades Root → Bark → Heartwood, and keeps its tier through prestige.
 #
-# Root Box odds by sap (soldier / guard / spearman / archer / rare / epic):
-#    30  55 / 25 /  8 / 10 /  2 / 0   Twig Soldiers most likely
-#    75  22 / 42 / 14 / 14 /  7 / 1   Twig Guards most likely
-#   150  10 / 18 / 17 / 37 / 15 / 3   Twig Archers most likely
-# Bark and Heartwood odds by rarity (common / uncommon / rare / epic):
-#   Bark       60: 50 / 35 / 13 /  2  →  300: 15 / 40 / 33 / 12
-#   Heartwood 120: 20 / 40 / 28 / 12  →  600:  0 / 25 / 45 / 30
+# Odds by rarity (common / uncommon / rare / epic):
+#   Root       30: 50 / 38 / 11 /  1  →  75: 30 / 45 / 21 /  4  →  150: 12 / 38 / 38 / 12
+#   Bark       60: 30 / 45 / 21 /  4  →  300:  5 / 35 / 42 / 18
+#   Heartwood 120:  8 / 37 / 38 / 17  →  600:  0 / 15 / 50 / 35
 # Each tier doubles the sap range and pays off once elemental lands are conquered.
 const RARITY_ORDER := ["common", "uncommon", "rare", "epic"]
 const RARITY := {
@@ -315,20 +369,22 @@ const BOX_MAX_POWER := 10
 const BOX_FOCUS_MAX := 0.95
 ## Added to each rarity's weight per prestige, as a fraction of it.
 const BOX_PRESTIGE_BONUS := {"common": 0.0, "uncommon": 0.04, "rare": 0.1, "epic": 0.15}
+const BOX_REPEAT := 0.8
+const BOX_REPEAT_MIN := 0.35
 const TWIG_BOXES := [
 	{"name": "Root Box", "img": "twig_box_1", "unlock_level": 1, "cost": {},
 		"min_sap": 30, "max_sap": 150, "sap_step": 15, "curve": [
-			[30, {"soldier": 55, "guard": 25, "spearman": 8, "archer": 10, "rare": 2}],
-			[75, {"soldier": 22, "guard": 42, "spearman": 14, "archer": 14, "rare": 7, "epic": 1}],
-			[150, {"soldier": 10, "guard": 18, "spearman": 17, "archer": 37, "rare": 15, "epic": 3}]]},
+			[30, {"common": 50, "uncommon": 38, "rare": 11, "epic": 1}],
+			[75, {"common": 30, "uncommon": 45, "rare": 21, "epic": 4}],
+			[150, {"common": 12, "uncommon": 38, "rare": 38, "epic": 12}]]},
 	{"name": "Bark Box", "img": "twig_box_2", "unlock_level": 3, "cost": {"sunlight": 300, "sap": 250},
 		"min_sap": 60, "max_sap": 300, "sap_step": 30, "curve": [
-			[60, {"common": 50, "uncommon": 35, "rare": 13, "epic": 2}],
-			[300, {"common": 15, "uncommon": 40, "rare": 33, "epic": 12}]]},
+			[60, {"common": 30, "uncommon": 45, "rare": 21, "epic": 4}],
+			[300, {"common": 5, "uncommon": 35, "rare": 42, "epic": 18}]]},
 	{"name": "Heartwood Box", "img": "twig_box_3", "unlock_level": 6, "cost": {"sunlight": 2500, "sap": 1200},
 		"min_sap": 120, "max_sap": 600, "sap_step": 60, "curve": [
-			[120, {"common": 20, "uncommon": 40, "rare": 28, "epic": 12}],
-			[600, {"common": 0, "uncommon": 25, "rare": 45, "epic": 30}]]},
+			[120, {"common": 8, "uncommon": 37, "rare": 38, "epic": 17}],
+			[600, {"common": 0, "uncommon": 15, "rare": 50, "epic": 35}]]},
 ]
 
 static func twig_box(tier: int) -> Dictionary:
@@ -352,10 +408,11 @@ static func _box_weights(tier: int, sap: float) -> Dictionary:
 
 ## The odds of each troop type coming out of a box. `pool` lists the unlocked
 ## types; `focus_type` (or "") is the troop the injected element favours.
-## `prestige` tilts the odds toward the better rarities.
+## `prestige` tilts the odds toward the better rarities; `owned` (type -> how
+## many the roster has) turns them away from troops already there.
 ## Returns { types: { type: p }, rarity: { rarity: p }, focus: p }, where
 ## `focus` is how far the injected energy has pulled the odds, 0..1.
-static func box_odds(tier: int, sap: float, focus_type: String, power: float, pool: Array, prestige := 0) -> Dictionary:
+static func box_odds(tier: int, sap: float, focus_type: String, power: float, pool: Array, prestige := 0, owned := {}) -> Dictionary:
 	var w := _box_weights(tier, sap)
 	# Each rarity's total weight, and how it splits among its unlocked troops.
 	var split := {}  # rarity -> { type: weight }
@@ -410,7 +467,8 @@ static func box_odds(tier: int, sap: float, focus_type: String, power: float, po
 	var sum := 0.0
 	for r in RARITY_ORDER:
 		for t in split[r]:
-			types[t] = split[r][t] * (1.0 + BOX_PRESTIGE_BONUS[r] * prestige)
+			types[t] = split[r][t] * (1.0 + BOX_PRESTIGE_BONUS[r] * prestige) \
+				* maxf(BOX_REPEAT_MIN, pow(BOX_REPEAT, owned.get(t, 0)))
 			sum += types[t]
 	for t in types:
 		types[t] /= sum
@@ -452,6 +510,46 @@ static func troop_def(troop: Dictionary) -> Dictionary:
 	return def
 
 
+## One line of plain text for each ability a unit's `def` carries (see the
+## ability list under Units), for its details card.
+static func troop_traits(def: Dictionary) -> Array:
+	var out := []
+	var pct := func(x: float) -> String: return "%s%%" % str(snappedf(x * 100.0, 0.1)).trim_suffix(".0")
+	if def.has("rally"):
+		out.append("Neighbours deal %s more damage" % pct.call(def["rally"]))
+	if def.has("ward"):
+		out.append("Neighbours take %s less damage" % pct.call(def["ward"]))
+	if def.has("haste"):
+		out.append("Neighbours attack %s faster" % pct.call(def["haste"]))
+	if def.has("armor"):
+		out.append("Takes %s less damage" % pct.call(def["armor"]))
+	if def.has("heal"):
+		out.append("Mends the most hurt troop in reach for %s of its HP, and only attacks when no one is hurt" % pct.call(def["heal"]))
+	if def.has("regen"):
+		out.append("Heals %s of its HP each second" % pct.call(def["regen"]))
+	if def.has("lifesteal"):
+		out.append("Heals %s of the damage it deals" % pct.call(def["lifesteal"]))
+	if def.has("thorns"):
+		out.append("Foes striking it up close take %s of their hit back" % pct.call(def["thorns"]))
+	if def.has("cleave"):
+		out.append("Each hit also deals %s to foes near the target" % pct.call(def["cleave"]))
+	if def.has("burn"):
+		out.append("Hits set foes burning for %s of the hit each second, for %d s" % [pct.call(def["burn"]), BURN_TIME])
+	if def.get("slow", false):
+		out.append("Hits slow foes for %d s" % SLOW_TIME)
+	if def.has("freeze"):
+		out.append("%s chance a hit freezes the foe for %d s" % [pct.call(def["freeze"]), FREEZE_TIME])
+	if def.has("vs_large"):
+		out.append("%s more damage to bosses and large foes" % pct.call(def["vs_large"] - 1.0))
+	if def.get("hunt_ranged", false):
+		out.append("Goes after foes that shoot from range first")
+	if def.get("target_lowest_hp", false):
+		out.append("Picks off the weakest foe in reach")
+	if def["reach"] <= 2:
+		out.append("Foes it hits turn to fight it, screening the rows behind")
+	return out
+
+
 static func strong_against(element: String) -> String:
 	return STRONG_AGAINST.get(element, "")
 
@@ -473,19 +571,19 @@ const ENEMIES := {
 	"spring_frog": {"name": "Spring Frog", "img": "enemy_spring_frog", "element": "water",
 		"hp": 18, "dmg": 3, "reach": 1, "cooldown": 1.25, "speed": 45, "dive": true},
 	"ripple_sprite": {"name": "Ripple Sprite", "img": "enemy_ripple_sprite", "element": "water",
-		"hp": 12, "dmg": 3, "reach": 5, "cooldown": 1.8, "speed": 32, "projectile": Color("#7FC8F0")},
+		"hp": 12, "dmg": 3, "reach": 5, "cooldown": 1.8, "speed": 32, "projectile": Color("#7FC8F0"), "shot": "droplet"},
 	"mossback_turtle": {"name": "Old Mossback Turtle", "img": "enemy_mossback_turtle", "element": "water",
 		"hp": 120, "dmg": 6, "reach": 1, "cooldown": 1.95, "speed": 22, "large": true, "boss": true, "cleave": 0.5},
 	"cinder_lizard": {"name": "Cinder Lizard", "img": "enemy_cinder_lizard", "element": "fire",
 		"hp": 26, "dmg": 4, "reach": 1, "cooldown": 1.2, "speed": 40},
 	"ash_moth": {"name": "Ash Moth", "img": "enemy_ash_moth", "element": "fire",
-		"hp": 13, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 48, "projectile": Color("#FF8A3D")},
+		"hp": 13, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 48, "projectile": Color("#FF8A3D"), "shot": "ember"},
 	"magma_salamander": {"name": "Magma Salamander", "img": "enemy_magma_salamander", "element": "fire",
 		"hp": 200, "dmg": 8, "reach": 1, "cooldown": 1.7, "speed": 26, "large": true, "boss": true, "burn": 0.3, "cleave": 0.5},
 	"frost_wolf": {"name": "Frost Wolf", "img": "enemy_frost_wolf", "element": "ice",
 		"hp": 26, "dmg": 4, "reach": 1, "cooldown": 1.0, "speed": 58, "dive": true},
 	"icicle_bat": {"name": "Icicle Bat", "img": "enemy_icicle_bat", "element": "ice",
-		"hp": 16, "dmg": 3, "reach": 4, "cooldown": 1.5, "speed": 50, "projectile": Color("#BDEBFF")},
+		"hp": 16, "dmg": 3, "reach": 4, "cooldown": 1.5, "speed": 50, "projectile": Color("#BDEBFF"), "shot": "icicle"},
 	"rime_elk": {"name": "Rime Elk", "img": "enemy_rime_elk", "element": "ice",
 		"hp": 230, "dmg": 9, "reach": 1, "cooldown": 1.8, "speed": 28, "large": true, "boss": true, "freeze": 0.12, "cleave": 0.5},
 	"cave_bat": {"name": "Cave Bat", "img": "enemy_cave_bat", "element": "dark",
@@ -498,14 +596,14 @@ const ENEMIES := {
 	"thornback_boar": {"name": "Thornback Boar", "img": "enemy_thornback_boar", "element": "nature",
 		"hp": 42, "dmg": 3.6, "reach": 1, "cooldown": 1.2, "speed": 42, "armor": 0.1},
 	"pollen_wisp": {"name": "Pollen Wisp", "img": "enemy_pollen_wisp", "element": "nature",
-		"hp": 14, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 40, "projectile": Color("#FFD447"), "regen": 0.02},
+		"hp": 14, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 40, "projectile": Color("#FFD447"), "shot": "pollen", "regen": 0.02},
 	"blight_treant": {"name": "Blight Treant", "img": "enemy_blight_treant", "element": "nature",
 		"hp": 250, "dmg": 7.2, "reach": 1, "cooldown": 1.8, "speed": 20, "large": true, "boss": true, "regen": 0.01, "cleave": 0.5},
 	# Sunken Lagoon
 	"snapjaw_crab": {"name": "Snapjaw Crab", "img": "enemy_snapjaw_crab", "element": "water",
 		"hp": 38, "dmg": 4.2, "reach": 1, "cooldown": 1.3, "speed": 34, "armor": 0.25},
 	"bubble_eel": {"name": "Bubble Eel", "img": "enemy_bubble_eel", "element": "water",
-		"hp": 16, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 38, "projectile": Color("#D8F1FF"), "slow": true},
+		"hp": 16, "dmg": 3, "reach": 4, "cooldown": 1.4, "speed": 38, "projectile": Color("#D8F1FF"), "shot": "bubble", "slow": true},
 	"lagoon_kraken": {"name": "Lagoon Kraken", "img": "enemy_lagoon_kraken", "element": "water",
 		"hp": 310, "dmg": 7.8, "reach": 2, "cooldown": 1.8, "speed": 20, "large": true, "boss": true, "slow": true, "cleave": 0.5},
 	# Fused bosses of the two-element lands: a little less HP than the two bosses
@@ -514,11 +612,11 @@ const ENEMIES := {
 		"hp": 470, "dmg": 11, "reach": 2, "cooldown": 1.7, "speed": 22, "large": true, "boss": true, "burn": 0.3, "slow": true, "cleave": 0.5},
 	"rimeshade_wight": {"name": "Rimeshade Wight", "img": "enemy_rimeshade_wight", "element": "ice", "fused": true,
 		"hp": 480, "dmg": 12, "reach": 1, "cooldown": 1.7, "speed": 26, "large": true, "boss": true, "freeze": 0.12, "lifesteal": 0.2, "cleave": 0.5},
-	# Wild twigs: rival elemental troops guarding the two-element lands, with the same stats as yours.
+	# Wild twigs: rival elemental troops guarding the two-element lands, a little weaker than yours.
 	"wild_vine_lasher": {"name": "Wild Vine Lasher", "img": "enemy_wild_vine_lasher", "element": "nature",
 		"hp": 42, "dmg": 5, "reach": 2, "cooldown": 1.1, "speed": 38, "regen": 0.012},
 	"wild_tide_caller": {"name": "Wild Tide Caller", "img": "enemy_wild_tide_caller", "element": "water",
-		"hp": 20, "dmg": 4, "reach": 4, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "slow": true},
+		"hp": 20, "dmg": 4, "reach": 4, "cooldown": 1.3, "speed": 34, "projectile": Color("#5BB4E8"), "shot": "foam", "slow": true},
 	"wild_ember_sprout": {"name": "Wild Ember Sprout", "img": "enemy_wild_ember_sprout", "element": "fire",
 		"hp": 28, "dmg": 8, "reach": 1, "cooldown": 1.0, "speed": 45, "burn": 0.3},
 	"wild_frost_warden": {"name": "Wild Frost Warden", "img": "enemy_wild_frost_warden", "element": "ice",

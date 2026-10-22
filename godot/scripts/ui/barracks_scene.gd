@@ -18,6 +18,9 @@ const FIREFLY := Color("#ffd78a")
 ## The roster troop picked for placing (-1 for none); its stump, and the
 ## stumps it could go to, show a ring.
 var selected_troop := -1
+## A troop still being revealed from the root box (-1 for none): it stays off
+## its stump until reveal() brings it in.
+var hidden_troop := -1
 var _troops := {}  # "row:lane" -> Sprite2D
 var _rings := {}  # "row:lane" -> Sprite2D
 var _placed := {}  # "row:lane" -> troop
@@ -78,7 +81,8 @@ func _ready() -> void:
 func sync() -> void:
 	_placed.clear()
 	for f in Game.state["formation"]:
-		_placed[key(f["row"], f["lane"])] = Game.troop_by_id(f["troop_id"])
+		if f["troop_id"] != hidden_troop:
+			_placed[key(f["row"], f["lane"])] = Game.troop_by_id(f["troop_id"])
 	for k in _troops:
 		var t: Sprite2D = _troops[k]
 		var troop: Dictionary = _placed.get(k, {})
@@ -88,6 +92,17 @@ func sync() -> void:
 		t.modulate.a = 0.35 if k == _drag_key else 1.0
 	_update_rings()
 	_under.queue_redraw()
+
+
+## Brings the hidden troop onto its stump, fading in.
+func reveal() -> void:
+	var id := hidden_troop
+	hidden_troop = -1
+	sync()
+	for k in _placed:
+		if _placed[k].get("id", -2) == id:
+			_troops[k].modulate.a = 0.0
+			create_tween().tween_property(_troops[k], "modulate:a", 1.0, 0.3)
 
 
 # Rings mark the selected troop's stump and every stump it can go to; while

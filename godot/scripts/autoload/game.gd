@@ -658,8 +658,11 @@ func box_pool() -> Array:
 ## The odds of the box as it stands (see GameData.box_odds).
 func box_odds() -> Dictionary:
 	var box: Dictionary = state["twig_box"]
+	var owned := {}
+	for t in state["troops"]:
+		owned[t["type"]] = owned.get(t["type"], 0) + 1
 	return GameData.box_odds(box["tier"], box["sap"], GameData.element_troop(box["element"]), box["power"], box_pool(),
-		state["tree"]["prestige"])
+		state["tree"]["prestige"], owned)
 
 
 ## Pours one step of sap into the box, up to its brim.

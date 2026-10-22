@@ -46,6 +46,7 @@ var _odds := {}  # rarity -> [bar fill ColorRect, percent Label]
 var _focus_line: Label
 var _opening := false
 var _arriving := -1  # the troop whose card is on its way to the roster; its token waits hidden
+var _details: Control  # a roster troop's card popped out over the Barracks, while open
 var _lower_at := 0
 var _hold: Timer
 var _hold_action := Callable()
@@ -178,7 +179,8 @@ func refresh() -> void:
 	_counts.text = "Formation %d / %d  ·  ▲ the front row faces the enemy" % [s["formation"].size(), Game.formation_slots()]
 	_bench_title.text = "Roster %d / %d" % [s["troops"].size(), Game.roster_cap()]
 	if sel >= 0:
-		_hint.text = "Tap a stump for %s" % GameData.troop_def(Game.troop_by_id(sel))["name"]
+		var d := GameData.troop_def(Game.troop_by_id(sel))
+		_hint.text = "Tap a stump for %s · %s" % [d["name"], d["role"]]
 	elif s["troops"].is_empty():
 		_hint.text = "No troops yet · open the root box below"
 	else:
@@ -505,6 +507,7 @@ func _on_box_tapped() -> void:
 	var troop: Dictionary = res["troop"]
 	_opening = true
 	_arriving = troop["id"]
+	_scene.hidden_troop = troop["id"]  # it takes its stump once its card lands
 	_hold.stop()
 	main.render()
 
@@ -577,6 +580,7 @@ func _drop_card(card: Control) -> void:
 	card.queue_free()
 	var id := _arriving
 	_arriving = -1
+	_scene.reveal()
 	token = _token_for(id)
 	if token:
 		token.modulate.a = 1.0
@@ -592,9 +596,11 @@ func _token_for(id: int) -> Control:
 	return null
 
 
-# The new troop's card: its sprite, name and rarity, and HP / DMG / reach,
-# framed in its rarity's colour.
-func _troop_card(troop: Dictionary) -> PanelContainer:
+# A troop's card: its sprite, name and rarity, and HP / DMG / reach, framed in
+# its rarity's colour. With `details` (a roster troop tapped) it also shows its
+# attack and move speed, element matchups, every ability, where it stands, and
+# buttons to place it or take it off its stump.
+func _troop_card(troop: Dictionary, details := false) -> PanelContainer:
 	var d := GameData.troop_def(troop)
 	var rarity: Dictionary = GameData.RARITY[d["rarity"]]
 	var look := _token_style(true)
@@ -617,7 +623,10 @@ func _troop_card(troop: Dictionary) -> PanelContainer:
 	col.add_child(role)
 	var stats := UI.hbox(14)
 	stats.alignment = BoxContainer.ALIGNMENT_CENTER
-	for pair in [["HP", d["hp"]], ["DMG", d["dmg"]], ["Reach", d["reach"]]]:
+	var pairs := [["HP", d["hp"]], ["DMG", d["dmg"]], ["Reach", d["reach"]]]
+	if details:
+		pairs += [["Attack", "%ss" % str(d["cooldown"])], ["Move", d["speed"]]]
+	for pair in pairs:
 		var stat := UI.vbox(0)
 		var cap := _box_label(pair[0], 15)
 		cap.modulate.a = 0.7
@@ -630,7 +639,56 @@ func _troop_card(troop: Dictionary) -> PanelContainer:
 	card.custom_minimum_size.x = 280
 	card.mouse_filter = MOUSE_FILTER_IGNORE
 	card.add_child(col)
+	if details:
+		_add_details(col, troop, d, rarity["color"])
+		card.custom_minimum_size.x = minf(440.0, size.x - 32.0)
+		card.mouse_filter = MOUSE_FILTER_STOP  # taps on the card don't close it
+		card.set_meta("troop_id", troop["id"])
 	return card
+
+
+func _add_details(col: VBoxContainer, troop: Dictionary, d: Dictionary, accent: Color) -> void:
+	var el: String = d["element"]
+	var match_line: Label
+	if el == "":
+		match_line = _box_label("No element · even against every foe", 16)
+		match_line.modulate.a = 0.75
+	else:
+		match_line = _box_label("Strong vs %s  ·  Weak vs %s" % [GameData.strong_against(el).capitalize(),
+			GameData.weak_against(el).capitalize()], 16)
+		match_line.add_theme_color_override("font_color", GameData.BIOME_COLORS[el].lightened(0.35))
+	col.add_child(match_line)
+	var rule := ColorRect.new()
+	rule.color = Color(accent, 0.35)
+	rule.custom_minimum_size.y = 2
+	col.add_child(rule)
+	for line in GameData.troop_traits(d):
+		var l := _box_label("•  " + line, 17)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size.x = minf(400.0, size.x - 72.0)
+		col.add_child(l)
+	var spot := {}
+	for f in Game.state["formation"]:
+		if f["troop_id"] == troop["id"]:
+			spot = f
+	var where := _box_label("In the roster, not in the formation" if spot.is_empty()
+		else "Stands on the %s row, %s" % [spot["row"], ["left", "middle", "right"][spot["lane"]]], 16)
+	where.modulate.a = 0.75
+	col.add_child(where)
+	var buttons := UI.hbox(10)
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	var id: int = troop["id"]
+	buttons.add_child(UI.button("Move" if not spot.is_empty() else "Place", func() -> void:
+		main.ui["selected_troop"] = id
+		_close_details()
+		main.render()))
+	if not spot.is_empty():
+		buttons.add_child(UI.button("Bench", func() -> void:
+			Game.place_troop(-1, spot["row"], spot["lane"])
+			_close_details()))
+	buttons.add_child(UI.button("Close", _close_details))
+	col.add_child(buttons)
 
 
 # Light outlined text for the dark boxes.
@@ -714,9 +772,77 @@ func _process(_delta: float) -> void:
 		_set_roster_hot(false)
 
 
+# Tapping a roster troop pops its card out to the middle of the screen.
 func _on_troop_pressed(id: int) -> void:
-	main.ui["selected_troop"] = -1 if main.ui["selected_troop"] == id else id
-	main.render()
+	if _opening or is_instance_valid(_details):
+		return
+	if main.ui["selected_troop"] >= 0:
+		main.ui["selected_troop"] = -1
+		main.render()
+	_show_details(id)
+
+
+# The troop's card grows out of its roster token to the middle, over a dimmed
+# Barracks, with everything about it and what can be done with it. Tapping
+# outside the card (or Close) sends it back into the token.
+func _show_details(id: int) -> void:
+	var troop := Game.troop_by_id(id)
+	var token := _token_for(id)
+	if troop.is_empty():
+		return
+	var veil := Control.new()
+	veil.set_anchors_preset(PRESET_FULL_RECT)
+	veil.mouse_filter = MOUSE_FILTER_STOP
+	add_child(veil)
+	_details = veil
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(PRESET_FULL_RECT)
+	dim.color = Color(UI.NIGHT, 0.0)
+	dim.mouse_filter = MOUSE_FILTER_IGNORE
+	veil.add_child(dim)
+	var card := _troop_card(troop, true)
+	veil.add_child(card)
+	card.reset_size()
+	card.pivot_offset = card.size * 0.5
+	var mid := ((size - card.size) * 0.5).round()
+	var from := mid
+	var shrink := 0.3
+	if token:
+		var r := token.get_global_rect()
+		shrink = r.size.x / card.size.x
+		from = r.get_center() - get_global_rect().position - card.size * 0.5
+	card.position = from.round()
+	card.scale = Vector2.ONE * shrink
+	var t := create_tween().set_parallel().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(dim, "color:a", 0.7, 0.25)
+	t.tween_property(card, "position", mid, 0.3)
+	t.tween_property(card, "scale", Vector2.ONE, 0.3)
+	veil.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			_close_details())
+
+
+func _close_details() -> void:
+	if not is_instance_valid(_details) or _details.has_meta("closing"):
+		return
+	var veil := _details
+	veil.set_meta("closing", true)
+	var dim: ColorRect = veil.get_child(0)
+	var card: Control = veil.get_child(1)
+	var token := _token_for(card.get_meta("troop_id", -1))
+	var to := card.position + Vector2(0, size.y * 0.25)
+	var shrink := 0.3
+	if token:
+		var r := token.get_global_rect()
+		shrink = r.size.x / card.size.x
+		to = r.get_center() - get_global_rect().position - card.size * 0.5
+	var t := create_tween().set_parallel().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	t.tween_property(dim, "color:a", 0.0, 0.22)
+	t.tween_property(card, "position", to.round(), 0.22)
+	t.tween_property(card, "scale", Vector2.ONE * shrink, 0.22)
+	t.tween_property(card, "modulate:a", 0.0, 0.12).set_delay(0.1)
+	await t.finished
+	veil.queue_free()
 
 
 # With a troop picked, a stump takes it (replacing whoever stood there), or

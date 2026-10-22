@@ -44,6 +44,10 @@ class Unit:
 	# A foe hit by a melee troop turns on it for a while (GameData.TAUNT_TIME).
 	var taunted_by: Unit
 	var taunt_t := 0.0
+	# Seconds since it last fired a shot (or healed), and which way: the battle
+	# view animates the throw from these.
+	var shot_t := 9.0
+	var aim := Vector2.UP
 
 	func _init(p_side: String, p_def: Dictionary, p_pos: Vector2) -> void:
 		side = p_side
@@ -67,6 +71,17 @@ class Projectile:
 	var crit := false
 	var color: Color
 	var done := false
+	var shot := ""  # the look of the shot (GameData "shot")
+	var start: Vector2  # where it was fired from
+	var dist0 := 1.0  # how far its target was then
+	var age := 0.0
+
+
+# Where a shot landed (or a heal took hold), for the battle view's burst.
+class Impact:
+	var pos: Vector2
+	var shot: String
+	var t := 0.0
 
 
 class DamagePopup:
@@ -76,6 +91,7 @@ class DamagePopup:
 	var side: String
 	var burn := false
 	var crit := false
+	var heal := false
 
 
 var level_id: String  # "grove" for an expedition
@@ -84,6 +100,7 @@ var allies: Array[Unit] = []
 var enemies: Array[Unit] = []
 var projectiles: Array[Projectile] = []
 var popups: Array[DamagePopup] = []
+var impacts: Array[Impact] = []
 var wave := 0
 var waves_cleared := 0
 var phase := "fighting"  # fighting | intermission | checkpoint | won | lost
@@ -280,6 +297,12 @@ func _pick_target(unit: Unit, foes: Array[Unit]) -> Unit:
 					or (absf(f.home.y - best.home.y) <= 1.0 and unit.pos.distance_to(f.pos) < unit.pos.distance_to(best.pos))):
 				best = f
 		return best
+	if unit.def.get("hunt_ranged", false):
+		for f in foes:
+			if f.alive() and f.def["reach"] >= 3 and (best == null or unit.pos.distance_to(f.pos) < unit.pos.distance_to(best.pos)):
+				best = f
+		if best:
+			return best
 	if unit.def.get("target_lowest_hp", false):
 		var range_px: float = _reach(unit) * GameData.REACH_UNIT + BODY
 		for f in foes:
@@ -298,8 +321,24 @@ func _reach(unit: Unit) -> float:
 	return unit.def["reach"] + (boost("reach") if unit.side == "ally" else 0.0)
 
 
+# The sum of an aura (see GameData.AURA_KEYS) from the living units on the
+# spots right beside `unit`'s own.
+func _aura(unit: Unit, key: String) -> float:
+	var total := 0.0
+	for f in (allies if unit.side == "ally" else enemies):
+		if f != unit and f.alive() and f.def.has(key) and f.home.distance_to(unit.home) <= GameData.AURA_RADIUS:
+			total += f.def[key]
+	return total
+
+
+# Damage after the target's armor and its neighbours' wards.
+func _mitigate(target: Unit, dmg: float) -> float:
+	return dmg * (1.0 - target.def.get("armor", 0.0)) * maxf(0.4, 1.0 - _aura(target, "ward"))
+
+
 func _damage_for(attacker: Unit, target: Unit) -> float:
 	var dmg: float = attacker.def["dmg"] * GameData.element_multiplier(attacker.def.get("element", ""), target.def.get("element", ""))
+	dmg *= 1.0 + _aura(attacker, "rally")
 	if attacker.side == "ally":
 		dmg *= 1.0 + boost("dmg")
 	if target.def.get("large", false) and attacker.def.has("vs_large"):
@@ -312,10 +351,11 @@ func _crit_chance(attacker: Unit) -> float:
 	return GameData.CRIT_CHANCE + (boost("crit") if attacker.side == "ally" else 0.0)
 
 
-func _popup(target: Unit, amount: float, burn := false, crit := false) -> void:
+func _popup(target: Unit, amount: float, burn := false, crit := false, heal := false) -> void:
 	var p := DamagePopup.new()
 	p.pos = target.pos - Vector2(0, target.size / 2)
-	p.text = "-%d" % maxi(1, roundi(amount))
+	p.text = ("+%d" if heal else "-%d") % maxi(1, roundi(amount))
+	p.heal = heal
 	p.side = target.side
 	p.burn = burn
 	p.crit = crit
@@ -342,17 +382,20 @@ func _apply_damage(target: Unit, dmg: float, show := true, crit := false) -> voi
 func _hit(attacker: Unit, target: Unit, dmg: float, crit := false) -> void:
 	if not target.alive():
 		return
-	dmg *= 1.0 - target.def.get("armor", 0.0)
+	dmg = _mitigate(target, dmg)
 	var dealt := minf(dmg, target.hp)
 	_apply_damage(target, dmg, true, crit)
 	var a := attacker.def
+	# Thorns prick back at whoever strikes them up close.
+	if target.def.has("thorns") and a["reach"] <= 2 and attacker.alive():
+		_apply_damage(attacker, _mitigate(attacker, dmg * target.def["thorns"]))
 	if a.has("lifesteal") and attacker.alive():
 		attacker.hp = minf(attacker.max_hp, attacker.hp + dealt * a["lifesteal"])
 	if a.has("cleave"):
 		var foes := allies if attacker.side == "enemy" else enemies
 		for f in foes:
 			if f != target and f.alive() and f.pos.distance_to(target.pos) <= GameData.CLEAVE_RADIUS:
-				_apply_damage(f, dmg * a["cleave"] * (1.0 - f.def.get("armor", 0.0)))
+				_apply_damage(f, _mitigate(f, dmg * a["cleave"]))
 	if not target.alive():
 		return
 	if attacker.side == "ally":
@@ -405,12 +448,22 @@ func _tick_status(unit: Unit, dt: float) -> bool:
 	return true
 
 
+func _impact(pos: Vector2, shot: String) -> void:
+	var im := Impact.new()
+	im.pos = pos
+	im.shot = shot
+	impacts.append(im)
+
+
 func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) -> void:
 	unit.flash = maxf(0.0, unit.flash - dt)
+	unit.shot_t += dt
 	if not _tick_status(unit, dt):
 		return
 	unit.cd -= dt
 	var slowed := unit.slow_t > 0.0
+	if unit.def.has("heal") and unit.cd <= 0.0 and _try_heal(unit, friends, slowed):
+		return
 	unit.taunt_t = maxf(0.0, unit.taunt_t - dt)
 	if unit.taunt_t > 0.0 and unit.taunted_by.alive():
 		unit.target = unit.taunted_by
@@ -430,7 +483,7 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 		if unit.side == "ally" and wave_time < CHARGE_TIME and not (unit.def["reach"] <= 2 and t.def["reach"] >= 3):
 			unit.pos = unit.home + (unit.pos - unit.home).limit_length(GameData.HOLD_RADIUS)
 	elif unit.cd <= 0.0:
-		unit.cd = unit.def["cooldown"] * (1.3 if slowed else 1.0)
+		unit.cd = _cooldown(unit, slowed)
 		var dmg := _damage_for(unit, t)
 		var crit := randf() < _crit_chance(unit)
 		if crit:
@@ -443,7 +496,12 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 			p.dmg = dmg
 			p.crit = crit
 			p.color = unit.def["projectile"]
+			p.shot = unit.def.get("shot", "")
+			p.start = p.pos
+			p.dist0 = maxf(1.0, p.pos.distance_to(t.pos))
 			projectiles.append(p)
+			unit.shot_t = 0.0
+			unit.aim = (t.pos - unit.pos).normalized()
 		else:
 			_hit(unit, t, dmg, crit)
 	# Keep units from stacking on top of each other.
@@ -458,6 +516,31 @@ func _step_unit(unit: Unit, friends: Array[Unit], foes: Array[Unit], dt: float) 
 	unit.pos.y = clampf(unit.pos.y, 30.0, H - 30.0)
 
 
+# Seconds until the unit's next attack: slowed by frost, quickened by haste.
+func _cooldown(unit: Unit, slowed: bool) -> float:
+	return unit.def["cooldown"] * (1.3 if slowed else 1.0) / (1.0 + _aura(unit, "haste"))
+
+
+# A healer mends the most hurt friend in reach. Returns false if no one needs it.
+func _try_heal(unit: Unit, friends: Array[Unit], slowed: bool) -> bool:
+	var range_px: float = _reach(unit) * GameData.REACH_UNIT + BODY
+	var best: Unit = null
+	for f in friends:
+		if f.alive() and f.hp < f.max_hp * 0.95 and unit.pos.distance_to(f.pos) <= range_px \
+				and (best == null or f.hp / f.max_hp < best.hp / best.max_hp):
+			best = f
+	if best == null:
+		return false
+	var amount := minf(best.max_hp - best.hp, best.max_hp * unit.def["heal"])
+	best.hp += amount
+	_popup(best, amount, false, false, true)
+	unit.shot_t = 0.0
+	unit.aim = (best.pos - unit.pos).normalized() if best != unit else Vector2.UP
+	_impact(best.pos, "heal")
+	unit.cd = _cooldown(unit, slowed)
+	return true
+
+
 func step(dt: float) -> void:
 	if is_over() or phase == "checkpoint":
 		return
@@ -466,6 +549,9 @@ func step(dt: float) -> void:
 	for p in popups:
 		p.t += dt
 	popups.assign(popups.filter(func(p: DamagePopup) -> bool: return p.t < 0.8))
+	for im in impacts:
+		im.t += dt
+	impacts.assign(impacts.filter(func(im: Impact) -> bool: return im.t < 0.4))
 
 	if phase == "intermission":
 		pause_timer -= dt
@@ -493,10 +579,12 @@ func step(dt: float) -> void:
 			_step_unit(u, enemies, allies, dt)
 
 	for p in projectiles:
+		p.age += dt
 		var d := p.pos.distance_to(p.target.pos)
 		var s := PROJECTILE_SPEED * dt
 		if d <= s or not p.target.alive():
 			_hit(p.attacker, p.target, p.dmg, p.crit)
+			_impact(p.target.pos if d <= s else p.pos, p.shot)
 			p.done = true
 		else:
 			p.pos += (p.target.pos - p.pos) / d * s

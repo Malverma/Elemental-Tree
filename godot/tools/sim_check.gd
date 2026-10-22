@@ -1,8 +1,9 @@
 extends SceneTree
 ## Headless balance check: runs each level many times with sample squads.
 ## Run: godot --headless --path godot --script res://tools/sim_check.gd
+## Set SIM_RUNS for a quicker (or steadier) pass than the default 200 runs.
 
-const RUNS := 200
+var RUNS := int(OS.get_environment("SIM_RUNS")) if OS.get_environment("SIM_RUNS") != "" else 200
 
 
 # Each entry is "type" or "type:element" (an infused base troop).
@@ -97,6 +98,14 @@ func _init() -> void:
 		["frostshade_barrows", ["ember_sprout", "ember_sprout", "soldier:nature", "spearman:fire", "spearman:nature", "archer:fire", "archer:fire", "archer:nature", "vine_lasher"]],
 		["blighted_heartwood", ["soldier", "soldier", "soldier", "spearman", "spearman", "spearman", "archer", "archer", "archer"]],
 		["blighted_heartwood", ["frost_warden", "frost_warden", "soldier:nature", "spearman:ice", "spearman:nature", "archer:ice", "archer:nature", "archer:ice", "vine_lasher"]],
+		# The newer troops, mixed into squads each land's tree level can field.
+		["whispering_spring", ["soldier", "drummer", "archer", "acorn_slinger"]],
+		["ember_vent", ["guard", "scout", "drummer", "spearman", "archer"]],
+		["frostbite_hollow", ["bramble_knight", "soldier", "drummer", "spearman", "acorn_slinger", "sap_mender"]],
+		["gloomroot_cavern", ["elder_oak", "guard", "soldier", "drummer", "archer", "acorn_slinger", "sap_mender"]],
+		["sunken_lagoon", ["elder_oak:dark", "bramble_knight", "shade_twig", "drummer", "spearman:dark", "sap_mender", "acorn_slinger:dark", "archer:dark", "tide_caller"]],
+		["frostshade_barrows", ["elder_oak:fire", "ember_sprout", "bramble_knight", "drummer", "spearman:fire", "sap_mender", "acorn_slinger:fire", "archer:fire", "tide_caller"]],
+		["blighted_heartwood", ["frost_warden", "elder_oak:ice", "bramble_knight", "soldier:ice", "drummer", "spearman:ice", "sap_mender", "archer:ice", "acorn_slinger:dark"]],
 	]
 	for sc in scenarios:
 		var wins := 0
